@@ -2,4 +2,4 @@
 
 Work from the class COMP409 Concurrency.
 
-All work is done in Java and is my own.
+All work is in Java and is my own.
