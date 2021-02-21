@@ -2,13 +2,11 @@ package assignment2;
 
 import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.Queue;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
-
-enum FacultySem {
-    ARTS, SCIENCE, ENGINEERING
-}
 
 class SemStudent implements Runnable{
     private SemBreakoutRoom aRoom;
@@ -44,26 +42,23 @@ class SemStudent implements Runnable{
         return aFaculty;
     }
 
+    public long getTime(){
+        return System.currentTimeMillis();
+    }
+
     @Override
     public void run() {
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < aN){
-
             int sleepBefore = ThreadLocalRandom.current().nextInt(1,10);
             try {
                 // sleep before entering.
                 Thread.sleep(aK * sleepBefore);
-            } catch (InterruptedException e) {
-                // Do nothing.
-            }
-            // try to enter the room.
-            try {
-                if (aRoom.enter(this)){
-                    // you're in!
-                    int sleepTime = ThreadLocalRandom.current().nextInt(1,10);
-                    Thread.sleep(aW * sleepTime);
-                    aRoom.exit(this);
-                }
+                aRoom.enter(this);
+                // you're in!
+                int sleepTime = ThreadLocalRandom.current().nextInt(1,10);
+                Thread.sleep(aW * sleepTime);
+                aRoom.exit();
             } catch (InterruptedException e) {
                 // Do nothing.
 
@@ -73,14 +68,14 @@ class SemStudent implements Runnable{
 }
 
 class SemBreakoutRoom{
-    Semaphore grabPass = new Semaphore(4);
-    int aOwnershipChange = 0;
-    int curCounter = 0;
-    Faculty currentFaculty = null;
-    Faculty lastFaculty = null;
-    private int artsLast = 0;
-    private int scienceLast = 0;
-    private int engLast = 0;
+    private Semaphore useDoor = new Semaphore(1);
+    private int aOwnershipChange = 0;
+    private Faculty currentFaculty = null;
+    private Faculty lastFaculty = null;
+    private int curCounter;
+    private int maxIn;
+    private ArrayList<Faculty> facultiesWaiting = new ArrayList<>();
+
 
     public void printOwnershipChange(){
         String faculty = currentFaculty==null?"empty":currentFaculty + "";
@@ -90,62 +85,83 @@ class SemBreakoutRoom{
     public void printPeople(){
         System.out.println("Num in room= " + curCounter);
     }
-    public void printFailure(){
-        System.out.println("Failed to enter");
+    public void printMaxIn(){
+        System.out.println("Max Num in room= " + maxIn);
     }
 
-    public void printEntering(int i){
-        System.out.println("S "+ i + " from "+ currentFaculty + " entering the room = " + curCounter);
+    private boolean inQueue(Faculty pFaculty){
+        return facultiesWaiting.contains(pFaculty);
     }
 
-    public void printLeave(int i){
-        System.out.println("S "+ i + " from "+ currentFaculty + " leaving the room. Num in = " + curCounter);
+    private void push(Faculty pFaculty){
+        facultiesWaiting.add(pFaculty);
+    }
+
+    private Faculty pop(){
+        if (facultiesWaiting.size() == 0){
+            return null;
+        }
+        return facultiesWaiting.remove(0);
+    }
+
+    private Faculty getNext(){
+        if (facultiesWaiting.size()==0){
+            return null;
+        }
+        return facultiesWaiting.get(0);
     }
 
     // TODO: not fair.
-    public synchronized boolean enter(SemStudent pStudent) {
+    public void enter(SemStudent pStudent) {
         boolean entered = false;
-        try {
-            if (currentFaculty == null && lastFaculty != pStudent.getFaculty()) {
-                currentFaculty = pStudent.getFaculty();
-                switch (currentFaculty) {
-                    case ARTS:
-                        artsLast++;
-                        break;
-                    case ENGINEERING:
-                        engLast++;
-                        break;
-                    case SCIENCE:
-                        scienceLast++;
+        while (!entered) {
+            try {
+                // Wait on the semaphore.
+                useDoor.acquire();
+                if (currentFaculty == pStudent.getFaculty()) {
+                    // Enter.
+                    curCounter++;
+                    entered = true;
+                } else {
+                    Faculty nextFac = getNext();
+                    boolean facultyTurn = nextFac==null?true:pStudent.getFaculty()==nextFac;
+                    if (currentFaculty == null && facultyTurn && lastFaculty != pStudent.getFaculty()) {
+                        // Enter!
+                        pop();
+                        currentFaculty = pStudent.getFaculty();
+                        aOwnershipChange++;
+                        curCounter++;
+                        printOwnershipChange();
+                        entered = true;
+                    } else {
+                          if (!inQueue(pStudent.getFaculty())){
+                            push((pStudent.getFaculty()));
+                        }
+                    }
                 }
-                aOwnershipChange++;
-                curCounter++;
-                printOwnershipChange();
-                entered = true;
-                // you've enter.
-                grabPass.acquire();
-            } else if (currentFaculty == pStudent.getFaculty()) {
-                curCounter++;
-                entered = true;
-                grabPass.acquire();
+                useDoor.release();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
             }
+        }
+    }
 
+    public void exit() {
+        try {
+            // Use the door to leave.
+            useDoor.acquire();
+            maxIn = Math.max(maxIn, curCounter);
+            curCounter--;
+            if (curCounter == 0){
+                lastFaculty = currentFaculty;
+                currentFaculty = null;
+                printOwnershipChange();
+            }
+            useDoor.release();
         } catch (InterruptedException e){
             e.printStackTrace();
         }
 
-        return entered;
-    }
-
-    public synchronized void exit(SemStudent pStudent) {
-        curCounter--;
-        grabPass.release();
-        if (grabPass.availablePermits() == 4){
-            // its empty, no one left in the room.
-            lastFaculty = currentFaculty;
-            currentFaculty = null;
-            printOwnershipChange();
-        }
     }
 
 }
@@ -184,6 +200,7 @@ public class breakoutSem {
             students[i].join();
         }
         breakoutRoom.printPeople();
+        breakoutRoom.printMaxIn();
         System.out.println("Done.");
 
     }
