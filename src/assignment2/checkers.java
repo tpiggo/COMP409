@@ -289,16 +289,15 @@ class Checker {
     }
 
     public boolean moveChecker() throws InterruptedException {
-        if (!currentTile.testAndLock(this)){
-            // You're captured.
-            return false;
-        }
-
-        // You hold the lock ot your own tile.
-
         int i = 0;
         int moveDir = ThreadLocalRandom.current().nextInt(0, 4);
         while (i < 4){
+            if (!currentTile.testAndLock(this)){
+                // You're captured.
+                return false;
+            }
+
+            // You hold the lock ot your own tile.
             Move nextMove = getMove(moveDir);
             int x = currentTile.posX + nextMove.x;
             int y = currentTile.posY + nextMove.y;
@@ -319,10 +318,12 @@ class Checker {
                     return true;
                 }
             }
+
+            // unlock and calculate the next move
+            currentTile.unlock();
             i++;
             moveDir = (moveDir + i) % 4;
         }
-        currentTile.unlock();
         return false;
     }
 }
