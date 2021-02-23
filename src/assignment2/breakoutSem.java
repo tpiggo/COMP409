@@ -7,14 +7,14 @@ import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 
-// TODO: UNCOMMENT THIS
-//enum Faculty {
-//    ARTS, SCIENCE, ENGINEERING;
-//    @Override
-//    public String toString() {
-//        return super.toString();
-//    }
-//}
+
+enum Faculty {
+    ARTS, SCIENCE, ENGINEERING;
+    @Override
+    public String toString() {
+        return super.toString();
+    }
+}
 
 class SemStudent implements Runnable{
     private SemBreakoutRoom aRoom;
@@ -24,6 +24,15 @@ class SemStudent implements Runnable{
     long aN;
     int aId;
 
+    /**
+     * Create a new student
+     * @param pRoom The breakout room
+     * @param pFaculty The students faculty
+     * @param k sleep time outside the room
+     * @param w sleep time inside the room
+     * @param n max running time
+     * @param pId id of the student.
+     */
     public SemStudent(SemBreakoutRoom pRoom, Faculty pFaculty, int k, int w, int n, int pId){
         aRoom = pRoom;
         aFaculty = pFaculty;
@@ -34,10 +43,16 @@ class SemStudent implements Runnable{
         aId = pId;
     }
 
+    /**
+     * Start the threads.
+     */
     public void start(){
         aThread.start();
     }
 
+    /**
+     * Join the threads.
+     */
     public void join(){
         try  {
             aThread.join();
@@ -46,40 +61,52 @@ class SemStudent implements Runnable{
         }
     }
 
+    // accessor
     public Faculty getFaculty(){
         return aFaculty;
     }
 
+    /**
+     * Main student thread method.
+     */
     @Override
     public void run() {
         long start = System.currentTimeMillis();
         while (System.currentTimeMillis() - start < aN){
             int sleepBefore = ThreadLocalRandom.current().nextInt(1,10);
+            // sleep before entering.
             try {
-                // sleep before entering.
-                Thread.sleep(aK * sleepBefore);
-                aRoom.enter(this);
-                // you're in!
-                int sleepTime = ThreadLocalRandom.current().nextInt(1,10);
-                Thread.sleep(aW * sleepTime);
-                aRoom.exit();
+                Thread.sleep(aW * sleepBefore);
             } catch (InterruptedException e) {
-                // Do nothing.
                 e.printStackTrace();
             }
+            aRoom.enter(this);
+            // you're in!
+            int sleepTime = ThreadLocalRandom.current().nextInt(1,10);
+            // System.out.print("I have entered the room sleeping " + (aW * sleepTime));
+            try {
+                Thread.sleep(aW * sleepTime);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            aRoom.exit();
         }
     }
 }
 
 class SemBreakoutRoom{
+    // lock
     private Semaphore useDoor = new Semaphore(1);
     private Semaphore queue = new Semaphore(1);
+    // condition variables
     private Semaphore wait = new Semaphore(1);
     private Faculty currentFaculty = null;
     private int curCounter;
     private int maxIn;
 
-
+    /**
+     * Printing functions
+     */
     public void printOwnershipChange() {
         String faculty = currentFaculty==null?"empty":currentFaculty + "";
         System.out.println("Ownership change to " + faculty);
@@ -92,36 +119,42 @@ class SemBreakoutRoom{
         System.out.println("Max Num in room = " + maxIn);
     }
 
+    /**
+     * Atomic entry into the room. Enter a queue in order to ensure fairness, not an explicit queue however.
+     * @param pStudent Student trying to enter.
+     */
     public void enter(SemStudent pStudent) {
-        // Do nothing
+
+        // enter the implicit queue.
         queue.acquireUninterruptibly();
-        boolean entered = false;
-        while (!entered){
+        useDoor.acquireUninterruptibly();
+
+        while (currentFaculty != pStudent.getFaculty() && currentFaculty != null){
+            useDoor.release();
+            // wait on the condition. blocks here, failed to get in.
+            wait.acquireUninterruptibly();
+            wait.release();
             useDoor.acquireUninterruptibly();
-            if (currentFaculty == pStudent.getFaculty()) {
-                // Enter.
-                curCounter++;
-                entered = true;
-                useDoor.release();
-            } else if (currentFaculty == null) {
-                curCounter++;
-                currentFaculty = pStudent.getFaculty();
-                printOwnershipChange();
-                // block the next person who is not
-                wait.acquireUninterruptibly();
-                entered = true;
-                useDoor.release();
-            } else {
-                useDoor.release();
-                // wait on the condition.
-                wait.acquireUninterruptibly();
-                wait.release();
-            }
         }
+
+        if (currentFaculty == null) {
+            currentFaculty = pStudent.getFaculty();
+            printOwnershipChange();
+            // block the next person who is not
+            wait.acquireUninterruptibly();
+        }
+        curCounter++;
+
+        // You can let the next person behind you to test.
+        useDoor.release();
         queue.release();
     }
 
+    /**
+     * Atomically leaving the room and releasing the room if it is free.
+     */
     public void exit() {
+        // Use the door, only one person can use it at one time.
         useDoor.acquireUninterruptibly();
         maxIn = Math.max(curCounter, maxIn);
         curCounter--;
@@ -166,11 +199,13 @@ public class breakoutSem {
             }
             students.add(new SemStudent(breakoutRoom, faculty, k, w, n, i+1));
         }
-
+        // Shuffle them!
         Collections.shuffle(students);
         students.forEach(student -> {
             student.start();
         });
+
+        // join them
         students.forEach(student -> {
             student.join();
         });
