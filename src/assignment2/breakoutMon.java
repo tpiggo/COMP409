@@ -1,10 +1,19 @@
+//TODO: REMOVE THIS
 package assignment2;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 enum Faculty {
-    ARTS, SCIENCE, ENGINEERING
+    ARTS, SCIENCE, ENGINEERING;
+    @Override
+    public String toString() {
+        return super.toString();
+    }
 }
 
 class Student implements Runnable{
@@ -13,7 +22,6 @@ class Student implements Runnable{
     private BreakoutRoomMon aRoom;
     int aK, aW, aId;
     long aN;
-    boolean aWaiting = false;
 
     public Student(BreakoutRoomMon pRoom, Faculty pFaculty, int k, int w, int n, int pId){
         aRoom = pRoom;
@@ -41,18 +49,6 @@ class Student implements Runnable{
         return aFaculty;
     }
 
-    public boolean isWaiting(){
-        return aWaiting;
-    }
-
-    public void nowWaiting(){
-        aWaiting = true;
-    }
-
-    public void notWaiting(){
-        aWaiting = false;
-    }
-
     @Override
     public void run() {
         long start = System.currentTimeMillis();
@@ -66,7 +62,7 @@ class Student implements Runnable{
                 int sleepTime = ThreadLocalRandom.current().nextInt(1,10);
                 // System.out.print("I have entered the room sleeping " + (aW * sleepTime));
                 Thread.sleep(aW * sleepTime);
-                aRoom.exit(this);
+                aRoom.exit();
             } catch (InterruptedException e) {
                 // Do nothing.
 
@@ -76,90 +72,57 @@ class Student implements Runnable{
 }
 
 class BreakoutRoomMon {
-    int aOwnershipChange = 0;
     Faculty currentFaculty = null;
-    Faculty lastFaculty = null;
+    ReentrantLock doorLock = new ReentrantLock(true);
+    ReentrantLock knobLock = new ReentrantLock(true);
+    Condition isFree = doorLock.newCondition();
+    Condition queueWait = doorLock.newCondition();
+    ArrayList<Student> students = new ArrayList<>();
     int curCounter = 0;
     int maxIn = 0;
-    private ArrayList<Faculty> facultiesWaiting = new ArrayList<>();
 
     public void printOwnershipChange(){
-        String faculty = currentFaculty==null?"empty":currentFaculty + "";
+        String faculty = currentFaculty==null?"empty":currentFaculty.name();
         System.out.println("Ownership change to " + faculty);
     }
 
     public void printPeople(){
-        System.out.println("Num in room= " + curCounter);
+        System.out.println("Num in room = " + curCounter);
     }
     public void printMaxIn(){
-        System.out.println("Max Num in room= " + maxIn);
-    }
-    private boolean inQueue(Faculty pFaculty){
-        return facultiesWaiting.contains(pFaculty);
+        System.out.println("Max Num in room = " + maxIn);
     }
 
-    private void push(Faculty pFaculty){
-        facultiesWaiting.add(pFaculty);
-    }
+    public void enter(Student pStudent) throws InterruptedException {
+        knobLock.lock();
+        doorLock.lock();
 
-    private Faculty pop(){
-        if (facultiesWaiting.size() == 0){
-            return null;
-        }
-        return facultiesWaiting.remove(0);
-    }
+        // You're the head of the line
+        while (currentFaculty != pStudent.getFaculty() && currentFaculty != null)
+            isFree.await();
 
-    private Faculty getNext(){
-        if (facultiesWaiting.size()==0){
-            return null;
-        }
-        return facultiesWaiting.get(0);
-    }
-
-    public synchronized void enter(Student pStudent) throws InterruptedException {
-        // Can't get in if the last faculty to hold it was yours.
-        // Can't get in if there is a faculty in there already.
-        boolean notMyFac = (currentFaculty != null && currentFaculty != pStudent.getFaculty());
-        boolean wasLastFac = (currentFaculty == null && lastFaculty == pStudent.getFaculty());
-        boolean facultyTurn = getNext()==null?true:pStudent.getFaculty()==getNext();
-        int i = 0;
-        while (notMyFac || (wasLastFac && !facultyTurn)){
-            if (!inQueue(pStudent.getFaculty())){
-                push(pStudent.getFaculty());
-            }
-            //System.out.println("S" + pStudent.aId + " in fac" + pStudent.getFaculty() +  " is waiting. Room is held by" + currentFaculty);
-            wait();
-            // Update the check
-            wasLastFac = (lastFaculty == pStudent.getFaculty() && currentFaculty == null);
-            notMyFac = (currentFaculty != null && currentFaculty != pStudent.getFaculty());
-            facultyTurn = getNext()==null?true:pStudent.getFaculty()==getNext();
-        }
-
-        if (currentFaculty == null) {
-            // You're acquiring the room.
-            pop();
+        if (currentFaculty == null){
             currentFaculty = pStudent.getFaculty();
-            aOwnershipChange++;
             printOwnershipChange();
-            notifyAll();
         }
+
         curCounter++;
-//        System.out.println("Current Fac: " + currentFaculty + " with " +curCounter);
+        // Let the next student in
+        doorLock.unlock();
+        knobLock.unlock();
     }
 
-
-    public synchronized void exit(Student pStudent){
+    public void exit(){
+        doorLock.lock();
         maxIn = Math.max(maxIn, curCounter);
         curCounter--;
         if (curCounter == 0){
-            // New faculty can enter.
-            lastFaculty = pStudent.getFaculty();
             currentFaculty = null;
             printOwnershipChange();
-            notifyAll();
+            isFree.signalAll();
         }
+        doorLock.unlock();
     }
-
 }
 
 
@@ -169,8 +132,9 @@ public class breakoutMon {
         int k = Integer.parseInt(args[1]);
         int w = Integer.parseInt(args[2]);
         // Create 12 students.
-        Student [] students = new Student[12];
         BreakoutRoomMon breakoutRoom = new BreakoutRoomMon();
+
+        List<Student> students = new ArrayList<>(12);
         for (int i = 0; i< 12; i++){
             int j = i % 3;
             Faculty faculty;
@@ -185,16 +149,17 @@ public class breakoutMon {
                     faculty = Faculty.SCIENCE ;
                     break;
             }
-            students[i] = new Student(breakoutRoom, faculty, k, w, n, i+1);
+            students.add(new Student(breakoutRoom, faculty, k, w, n, i+1));
         }
 
-        for (int i = 0; i < 12; i++) {
-            students[i].start();
-        }
+        Collections.shuffle(students);
+        students.forEach(student -> {
+            student.start();
+        });
+        students.forEach(student -> {
+            student.join();
+        });
 
-        for (int i = 0; i < 12; i++) {
-            students[i].join();
-        }
         breakoutRoom.printPeople();
         breakoutRoom.printMaxIn();
         System.out.println("Done.");

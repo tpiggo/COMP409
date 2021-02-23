@@ -1,3 +1,4 @@
+//TODO: REMOVE THIS
 package assignment2;
 
 import java.util.concurrent.ThreadLocalRandom;
@@ -41,6 +42,22 @@ class Board{
         }
     }
 
+    public void printBoard(){
+        String aString = "========================================================================\n";
+        for (int y = 0; y < aHeight; y++) {
+            for (int x = 0; x < aWidth; x++) {
+                aString+= aBoard[y][x].aColour + aBoard[y][x].toString();
+                if (x + 1 < aWidth){
+                    aString += " | ";
+                }
+            }
+            if (y + 1 < aHeight){
+                aString += "\n------------------------------------------------------------------------\n";
+            }
+        }
+        System.out.println(aString+"\n========================================================================\n");
+    }
+
     public void print(){
         for (int y = 0; y < aHeight; y++) {
             for (int x = 0; x < aWidth; x++){
@@ -70,29 +87,36 @@ class Tile {
         posY = y;
     }
 
-    public synchronized Tile setChecker(Checker pChecker) throws InterruptedException {
+    public synchronized Tile setChecker(Checker pChecker, boolean isRespawning) throws InterruptedException {
         // someones locking
         while (locked)
             wait();
 
         if (aChecker == null){
             aChecker = pChecker;
+
+            if (isRespawning)
+                pChecker.printRespawn(this);
+            else
+                pChecker.printSpawn(this);
             return this;
         }
 
         return null;
     }
 
-    public synchronized void removeChecker(Checker pChecker) throws InterruptedException {
+    public synchronized boolean removeChecker(Checker pChecker) throws InterruptedException {
         // Let whomever locked you finish their move before removing.
-        while (locked) {
+        while (locked)
             wait();
-        }
+
 
         if (aChecker == pChecker) {
             System.out.println("Removing T" +aChecker.id + " from " + toString());
             aChecker = null;
+            return true;
         }
+        return false;
     }
 
     public synchronized void free(){
@@ -103,19 +127,24 @@ class Tile {
     }
 
     public synchronized Tile moveChecker(Checker pChecker, Tile oldTile){
-        oldTile.free();
+        // Not a state we can enter. But used to check
+        if (locked && pChecker.id != lockingId)
+            System.out.println("------------------------------T" + pChecker.id + " is moving onto a tile locked by T" + lockingId);
+        else if (aChecker != null)
+            System.out.println("------------------------------T" + aChecker.id + " is on the tile");
         aChecker = pChecker;
         locked = false;
         lockingId = 0;
+        pChecker.printMove(this);
+        oldTile.free();
         notify();
         return this;
     }
 
     public synchronized boolean testAndLock(Checker pChecker) throws InterruptedException {
         // Someone is moving on you. Wait until they're done.
-        while (locked){
+        while (locked)
             wait();
-        }
 
         if (pChecker != aChecker){
             // You are dead.
@@ -130,7 +159,13 @@ class Tile {
         if (locked || aChecker != null){
             return false;
         }
+        // Not a state we can enter. But used to check
+        if (locked && pChecker.id != lockingId)
+            System.out.println("------------------------------T" + pChecker.id + " is moving onto a tile locked by T" + lockingId);
+        else if (aChecker != null)
+            System.out.println("------------------------------T" + aChecker.id + " is on the tile");
         capturedTile.aChecker.printCaptured();
+        pChecker.printCapture(capturedTile);
         capturedTile.free();
         moveChecker(pChecker, oldTile);
         return true;
@@ -140,6 +175,7 @@ class Tile {
         if (locked){
             return 2;
         }
+
         int lockStat = 0;
         if (aChecker != null){
             lockStat = 1;
@@ -159,12 +195,11 @@ class Tile {
         if (pChecker != aChecker){
             return false;
         }
-
         return true;
     }
 
     public String toString(){
-        return "(" + posX + ", " + posY+ ")";
+        return "(" + posX + ", " + (7-posY) + ")";
     }
 }
 
@@ -179,11 +214,10 @@ class Checker {
     }
 
     public void spawn() throws InterruptedException {
-        genericSpawn();
-        printSpawn();
+        genericSpawn(false);
     }
 
-    public void genericSpawn() throws InterruptedException {
+    private void genericSpawn(boolean isRespawn) throws InterruptedException {
         boolean spawned = false;
         while(!spawned){
             int x = ThreadLocalRandom.current().nextInt(0, 8);
@@ -194,7 +228,7 @@ class Checker {
                 y = (y * 2) + 1;
             }
 
-            currentTile = aBoard.aBoard[y][x].setChecker(this);
+            currentTile = aBoard.aBoard[y][x].setChecker(this, isRespawn);
             if (currentTile != null){
                 spawned = true;
             }
@@ -202,26 +236,25 @@ class Checker {
     }
 
     public void respawn() throws InterruptedException {
-        genericSpawn();
-        printRespawn();
+        genericSpawn(true);
     }
 
     protected void printCaptured() {
-        String out = "T"+id+": captured.";
+        String out = "T"+id+": captured" ;
         System.out.println(out);
 
     }
 
-    protected void printSpawn() {
-        System.out.println("T"+ id+": spawns on" + currentTile.toString());
+    protected void printSpawn(Tile pTile) {
+        System.out.println("T"+ id+": spawns on " + pTile.toString());
     }
 
-    protected void printRespawn() {
-        System.out.println("T"+ id+": respawns on " + currentTile.toString());
+    protected void printRespawn(Tile pTile) {
+        System.out.println("T"+ id+": respawns on " + pTile.toString());
     }
 
-    public void printMove(){
-        System.out.println("T"+id+ ": moved to " + currentTile.toString());
+    public void printMove(Tile pTile){
+        System.out.println("T"+id+ ": moved to " + pTile.toString());
     }
 
     public void printCapture(Tile pTile){
@@ -233,11 +266,17 @@ class Checker {
     }
 
     public void remove() throws InterruptedException {
-        currentTile.removeChecker(this);
+        if (!currentTile.removeChecker(this)){
+            System.out.println("T14: Not on the board, thus already removed!");
+        }
     }
 
     public boolean isAlive(){
         return currentTile.checkerIsOn(this);
+    }
+
+    private boolean testAndCapture(Tile capturedTile, int x, int y){
+        return aBoard.aBoard[y][x].testAndCaptureAndMove(capturedTile, this, currentTile);
     }
 
     public Move getMove(int dir){
@@ -254,7 +293,9 @@ class Checker {
             // You're captured.
             return false;
         }
-        // You hold the lock.
+
+        // You hold the lock ot your own tile.
+
         int i = 0;
         int moveDir = ThreadLocalRandom.current().nextInt(0, 4);
         while (i < 4){
@@ -266,18 +307,15 @@ class Checker {
                 if (locked == 1){
                     int x2 = x + nextMove.x;
                     int y2 = y + nextMove.y;
-                    if (!(x2 < 0 || x2 > 7 || y2 < 0 || y2 > 7) && aBoard.aBoard[y2][x2].testAndCaptureAndMove(aBoard.aBoard[y][x], this, currentTile)){
+                    if (!(x2 < 0 || x2 > 7 || y2 < 0 || y2 > 7) && testAndCapture(aBoard.aBoard[y][x], x2, y2)){
                         currentTile = aBoard.aBoard[y2][x2];
                         numCaptures++;
-                        printCapture(aBoard.aBoard[y][x]);
                         return true;
                     } else {
                         aBoard.aBoard[y][x].unlock();
                     }
-                    // System.out.println("C" + id + ": Unlocked " + aBoard.aBoard[y][x].toString());
                 } else if (locked == 0){
-                    currentTile = aBoard.aBoard[y][x].moveChecker(this, currentTile);
-                    printMove();
+                    currentTile = aBoard.aBoard[y][x].moveChecker(this, currentTile);;
                     return true;
                 }
             }
@@ -318,14 +356,13 @@ class CheckerController implements Runnable {
                 if (aChecker.moveChecker()){
                     numMoves++;
                 }
-
                 Thread.sleep(k);
-                
+
                 if (!aChecker.isAlive()){
                     Thread.sleep(ThreadLocalRandom.current().nextInt(2,5) * k);
                     aChecker.respawn();
-                    // return;
                 }
+
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -352,6 +389,7 @@ public class checkers{
             throw new IllegalArgumentException("Missing arguments!");
         }
         Board tBoard = new Board(8,8);
+        tBoard.printBoard();
         Checker[] checkers = new Checker[t];
 
         for (int i = 0; i < t; i++){
@@ -381,11 +419,13 @@ public class checkers{
             }
         }
 
+        int totalCap = 0;
         for (int i = 0; i < t; i++){
             // print number of captures done by each checker!
             checkers[i].printCaptures();
+            totalCap += checkers[i].numCaptures;
         }
-        System.out.println("done");
-    }
 
+        System.out.println("Total number of captures: "+ totalCap + ". Done");
+    }
 }

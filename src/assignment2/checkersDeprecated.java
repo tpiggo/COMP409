@@ -552,7 +552,7 @@ class CheckerControllerDeprecated implements Runnable {
     }
 }
 
-public class checkersDepricated{
+public class checkersDeprecated{
     public static void main(String [] args) {
         int t, k, n;
         if (args.length >= 3) {

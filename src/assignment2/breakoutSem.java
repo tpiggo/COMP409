@@ -1,12 +1,20 @@
+//TODO: REMOVE THIS
 package assignment2;
 
-import java.lang.reflect.Array;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.Queue;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
+
+// TODO: UNCOMMENT THIS
+//enum Faculty {
+//    ARTS, SCIENCE, ENGINEERING;
+//    @Override
+//    public String toString() {
+//        return super.toString();
+//    }
+//}
 
 class SemStudent implements Runnable{
     private SemBreakoutRoom aRoom;
@@ -42,10 +50,6 @@ class SemStudent implements Runnable{
         return aFaculty;
     }
 
-    public long getTime(){
-        return System.currentTimeMillis();
-    }
-
     @Override
     public void run() {
         long start = System.currentTimeMillis();
@@ -61,7 +65,7 @@ class SemStudent implements Runnable{
                 aRoom.exit();
             } catch (InterruptedException e) {
                 // Do nothing.
-
+                e.printStackTrace();
             }
         }
     }
@@ -69,99 +73,65 @@ class SemStudent implements Runnable{
 
 class SemBreakoutRoom{
     private Semaphore useDoor = new Semaphore(1);
-    private int aOwnershipChange = 0;
+    private Semaphore queue = new Semaphore(1);
+    private Semaphore wait = new Semaphore(1);
     private Faculty currentFaculty = null;
-    private Faculty lastFaculty = null;
     private int curCounter;
     private int maxIn;
-    private ArrayList<Faculty> facultiesWaiting = new ArrayList<>();
 
 
-    public void printOwnershipChange(){
+    public void printOwnershipChange() {
         String faculty = currentFaculty==null?"empty":currentFaculty + "";
         System.out.println("Ownership change to " + faculty);
     }
 
     public void printPeople(){
-        System.out.println("Num in room= " + curCounter);
+        System.out.println("Num in room = " + curCounter);
     }
     public void printMaxIn(){
-        System.out.println("Max Num in room= " + maxIn);
+        System.out.println("Max Num in room = " + maxIn);
     }
 
-    private boolean inQueue(Faculty pFaculty){
-        return facultiesWaiting.contains(pFaculty);
-    }
-
-    private void push(Faculty pFaculty){
-        facultiesWaiting.add(pFaculty);
-    }
-
-    private Faculty pop(){
-        if (facultiesWaiting.size() == 0){
-            return null;
-        }
-        return facultiesWaiting.remove(0);
-    }
-
-    private Faculty getNext(){
-        if (facultiesWaiting.size()==0){
-            return null;
-        }
-        return facultiesWaiting.get(0);
-    }
-
-    // TODO: not fair.
     public void enter(SemStudent pStudent) {
+        // Do nothing
+        queue.acquireUninterruptibly();
         boolean entered = false;
-        while (!entered) {
-            try {
-                // Wait on the semaphore.
-                useDoor.acquire();
-                if (currentFaculty == pStudent.getFaculty()) {
-                    // Enter.
-                    curCounter++;
-                    entered = true;
-                } else {
-                    Faculty nextFac = getNext();
-                    boolean facultyTurn = nextFac==null?true:pStudent.getFaculty()==nextFac;
-                    if (currentFaculty == null && facultyTurn && lastFaculty != pStudent.getFaculty()) {
-                        // Enter!
-                        pop();
-                        currentFaculty = pStudent.getFaculty();
-                        aOwnershipChange++;
-                        curCounter++;
-                        printOwnershipChange();
-                        entered = true;
-                    } else {
-                          if (!inQueue(pStudent.getFaculty())){
-                            push((pStudent.getFaculty()));
-                        }
-                    }
-                }
+        while (!entered){
+            useDoor.acquireUninterruptibly();
+            if (currentFaculty == pStudent.getFaculty()) {
+                // Enter.
+                curCounter++;
+                entered = true;
                 useDoor.release();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+            } else if (currentFaculty == null) {
+                curCounter++;
+                currentFaculty = pStudent.getFaculty();
+                printOwnershipChange();
+                // block the next person who is not
+                wait.acquireUninterruptibly();
+                entered = true;
+                useDoor.release();
+            } else {
+                useDoor.release();
+                // wait on the condition.
+                wait.acquireUninterruptibly();
+                wait.release();
             }
         }
+        queue.release();
     }
 
     public void exit() {
-        try {
-            // Use the door to leave.
-            useDoor.acquire();
-            maxIn = Math.max(maxIn, curCounter);
-            curCounter--;
-            if (curCounter == 0){
-                lastFaculty = currentFaculty;
-                currentFaculty = null;
-                printOwnershipChange();
-            }
-            useDoor.release();
-        } catch (InterruptedException e){
-            e.printStackTrace();
+        useDoor.acquireUninterruptibly();
+        maxIn = Math.max(curCounter, maxIn);
+        curCounter--;
+        if (curCounter == 0){
+            currentFaculty = null;
+            // System.out.println("Trying to enter an empty room. Give me the pass");
+            printOwnershipChange();
+            wait.release();
         }
-
+        useDoor.release();
     }
 
 }
@@ -169,12 +139,17 @@ class SemBreakoutRoom{
 
 public class breakoutSem {
     public static void main(String [] args){
+        if (args.length < 3){
+            throw new IllegalArgumentException("Missing command line arguments");
+        }
+
         int n = Integer.parseInt(args[0]);
         int k = Integer.parseInt(args[1]);
         int w = Integer.parseInt(args[2]);
-        // Create 12 students.
-        SemStudent [] students = new SemStudent[12];
+
         SemBreakoutRoom breakoutRoom = new SemBreakoutRoom();
+        // Create 12 students.
+        List<SemStudent> students = new ArrayList<>(12);
         for (int i = 0; i< 12; i++){
             int j = i % 3;
             Faculty faculty;
@@ -189,16 +164,17 @@ public class breakoutSem {
                     faculty = Faculty.SCIENCE ;
                     break;
             }
-            students[i] = new SemStudent(breakoutRoom, faculty, k, w, n, i+1);
+            students.add(new SemStudent(breakoutRoom, faculty, k, w, n, i+1));
         }
 
-        for (int i = 0; i < 12; i++) {
-            students[i].start();
-        }
+        Collections.shuffle(students);
+        students.forEach(student -> {
+            student.start();
+        });
+        students.forEach(student -> {
+            student.join();
+        });
 
-        for (int i = 0; i < 12; i++) {
-            students[i].join();
-        }
         breakoutRoom.printPeople();
         breakoutRoom.printMaxIn();
         System.out.println("Done.");
