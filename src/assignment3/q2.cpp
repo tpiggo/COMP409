@@ -12,7 +12,6 @@ using namespace std;
 class Node
 {
     public:
-        int color;
         Node(int id)
         {
             this->id = id;
@@ -40,7 +39,8 @@ class Node
             return id;
         }
 
-        void printadj()
+        // Delete this 
+        void printAdj()
         {
             for (Node *n: adj)
             {
@@ -54,6 +54,7 @@ class Node
 
         int getColor()
         {
+            // may not need the lock
             omp_set_lock(&(this->objLock));
             int c = this->color;
             omp_unset_lock(&(this->objLock));
@@ -62,6 +63,7 @@ class Node
 
         void setColor(int color)
         {
+            // may not need the lock
             omp_set_lock(&(this->objLock));
             this->color = color;
             omp_unset_lock(&(this->objLock));
@@ -72,12 +74,25 @@ class Node
             return it != adj.end();
         }
 
+        void reorderAdj();
+
     private:
         vector<Node*> adj = {};
         int id;
         // making a lock
         omp_lock_t objLock;
+        int color;
 };
+
+bool nodeComp(Node *n1, Node *n2)
+{
+    return n1->getColor() < n2->getColor();
+}
+// reorder the adjacency list in terms of color
+void Node::reorderAdj()
+{
+    sort(this->adj.begin(), this->adj.end(), nodeComp);
+}
 
 class Graph
 {
@@ -87,6 +102,8 @@ class Graph
         // Here we make the parallelizable functions
         void printGraph();
         void color();
+        // Delete this
+        void checkGraph();
     private:
         vector<Node*> nodes = {};
         int numNodes;
@@ -133,17 +150,16 @@ Graph::Graph(int numNodes)
     }
 }
 
-// Do not need this function
-void Graph::printGraph()
+// Delete this function later
+void Graph::checkGraph()
 {
     map<string, int> strMap;
     for (Node *node: nodes)
     {
-        cout << node->getId() << endl;
         vector<Node*> adjNodes = node->getAdj();
         cout << node->getId() << " adjency list length: " << adjNodes.size() << endl;
         cout << node->getId() << " adj: ";
-        node->printadj();
+        node->printAdj();
         cout << endl;
     }
     for (Node *node: nodes)
@@ -171,15 +187,36 @@ void Graph::printGraph()
         cout << it->first << ", " << it->second << endl;
     }
 }
+// Do not need this function
+void Graph::printGraph()
+{
+    map<string, int> strMap;
+    for (Node *node: nodes)
+    {
+        vector<Node*> adjNodes = node->getAdj();
+        cout << node->getId() << " adjency list length: " << adjNodes.size() << endl;
+        cout << node->getId() << " with color: " << node->getColor() << " ; with adj: ";
+        node->printAdj();
+        cout << endl;
+    }
+
+}
 
 void Graph::color()
 {
     // All nodes are conflicting right now.
     vector<Node*> conflicts(nodes);
+    int i = 0;
     while (conflicts.size() != 0 )
     {
         this->assign();
         conflicts = this->detectConflict();
+        i++;
+        if (i > 100 )
+        {
+            cout << "=============== You've entered an invalid state ==============" << endl;
+            break;
+        }
     }
 }
 
@@ -187,17 +224,46 @@ void Graph::assign()
 {
     // Doing nothing useful
     #pragma omp parallel for
-    for (int i=0;i<20;i++) {
-        printf("Iteration %d done by thread %d accessing node %d\n",
-               i,
-               omp_get_thread_num(),
-               nodes.at(i%10)->getId());
+    for (int i=0;i<nodes.size();i++) {
+        // Each thread should check its neighbours and make a decision
+        Node *node = nodes.at(i);
+        int minC = 1; // Lowest possible color;
+        for (Node *pNode : node->getAdj())
+        {
+            if (pNode->getColor() == minC)
+            {
+                minC++;
+            }
+        }
+        node->setColor(minC);
+
     }
 }
 
 vector<Node*> Graph::detectConflict()
 {
-    return vector<Node*> {};
+    vector<Node*> conflicts;
+    #pragma omp parallel for
+    for (int i=0;i<nodes.size(); i++) {
+        // Each thread should check its neighbours and make a decision
+        Node *node = nodes.at(i);
+        node->reorderAdj();
+        for (Node *pNode : node->getAdj())
+        {
+            if (pNode->getColor() == node->getColor())
+            {
+                #pragma omp critical
+                {
+                    conflicts.push_back(node);
+                }
+                // You're done
+                break;
+            }
+        }
+    }
+    cout << "-------------- More than " << conflicts.size() << "nodes in CONFLICT ------------" << endl;
+
+    return conflicts;
 }
 
 Graph::~Graph()
@@ -209,14 +275,16 @@ Graph::~Graph()
         delete back;
     }
 }
+
 // My Main function
 int main()
 {
     int t = 3;
-    Graph aGraph(10);
+    Graph aGraph(100);
     aGraph.printGraph();
     omp_set_num_threads(t);
-    int i = 0;
     aGraph.color();
+    cout << "-----------------" <<endl;
+    aGraph.printGraph();
     cout << "Done the main" << endl;
 }
