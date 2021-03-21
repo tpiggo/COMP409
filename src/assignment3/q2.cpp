@@ -49,14 +49,17 @@ class Node
 
         int getColor()
         {
-            int col = this->color;
+            int col = 0;
+            #pragma omp atomic write
+                col = this->color;
             return col;
         }
 
         void setColor(int color)
         {
             // may not need the lock
-            this->color = color;
+            #pragma omp atomic read
+                this->color = color;
         }
 
         bool adjContains(Node *pNode)
@@ -116,8 +119,8 @@ class Graph
         vector<Edge*> edges = {};
         int numNodes;        
         // Here we make the parallelizable functions
-        void assign();
-        vector<Node*> detectConflict();
+        void assign(vector<Node*> conflicts);
+        vector<Node*> detectConflict(vector<Node*> conflicts);
 };
 
 int a = 1;
@@ -238,8 +241,8 @@ void Graph::color()
     int i = 0;
     while (conflicts.size() != 0 )
     {
-        this->assign();
-        conflicts = this->detectConflict();
+        this->assign(conflicts);
+        conflicts = this->detectConflict(conflicts);
         i++;
         if (i > 1000 )
         {
@@ -260,13 +263,13 @@ int Graph::getMinColoring()
     return minC;
 }
 
-void Graph::assign()
+void Graph::assign(vector<Node*> conflicts)
 {
     // Doing nothing useful
     #pragma omp parallel for
-    for (int i=0; i < nodes.size(); i++) {
+    for (int i=0; i < conflicts.size(); i++) {
         // Each thread should check its neighbours and make a decision
-        Node *node = nodes.at(i);
+        Node *node = conflicts.at(i);
         int minC = 1; // Lowest possible color;
         for (Node *pNode : node->getAdj())
         {
@@ -276,17 +279,16 @@ void Graph::assign()
             }
         }
         node->setColor(minC);
-
     }
 }
 
-vector<Node*> Graph::detectConflict()
+vector<Node*> Graph::detectConflict(vector<Node*> conflicts)
 {
-    vector<Node*> conflicts;
+    vector<Node*> newConflicts;
     #pragma omp parallel for
-    for (int i=0;i<nodes.size(); i++) {
+    for (int i=0;i < conflicts.size(); i++) {
         // Each thread should check its neighbours and make a decision
-        Node *node = nodes.at(i);
+        Node *node = conflicts.at(i);
         node->reorderAdj();
         for (Node *pNode : node->getAdj())
         {
@@ -294,16 +296,16 @@ vector<Node*> Graph::detectConflict()
             {
                 #pragma omp critical
                 {
-                    conflicts.push_back(node);
+                    newConflicts.push_back(node);
                 }
                 // You're done
                 break;
             }
         }
     }
-    cout << "-------------- More than " << conflicts.size() << " nodes in CONFLICT ------------" << endl;
+    cout << "-------------- " << newConflicts.size() << " nodes in CONFLICT ------------" << endl;
 
-    return conflicts;
+    return newConflicts;
 }
 
 // My Main function
@@ -315,11 +317,11 @@ int main(int argc, char *argv[])
         printf("Using %d nodes\n",n);
         if (argc>2) {
             e = atoi(argv[2]);
-            printf("Using %d edges\n",t);
+            printf("Using %d edges\n", e);
             if (argc > 3)
             {
                 t = atoi(argv[3]);
-                printf("Using %d threads\n",t);
+                printf("Using %d threads\n", t);
             }
         }
     }
@@ -341,14 +343,19 @@ int main(int argc, char *argv[])
     }
 
     // Main function
+    // Create the graph and set the threads
     Graph aGraph(n, e);
     omp_set_num_threads(t);
+
     auto start = chrono::high_resolution_clock::now();
     aGraph.color();
     auto end = chrono::high_resolution_clock::now();
+
     cout << "--------------------------" << endl;
     chrono::duration<double> dur = end - start;
+    auto dur2 = end - start;
     cout << "Run time: "  << dur.count() << endl;
+    cout << "Run time: "  << dur2/chrono::milliseconds(1) << "in ms." << endl;
     cout << "Minimum number of colors required: " << aGraph.getMinColoring() << endl;
     cout << "--------------------------" << endl;
     aGraph.inspectGraph();
