@@ -4,9 +4,10 @@
 #include <cstdlib>
 #include <algorithm>
 #include <string>
-#include <sstream>
 #include <time.h>
 #include <map>
+#include <chrono>
+#include <fstream>
 using namespace std;
 
 class Node
@@ -16,12 +17,6 @@ class Node
         {
             this->id = id;
             this->color = 0;
-            omp_init_lock(&(this->objLock));
-        }
-
-        ~Node()
-        {
-            omp_destroy_lock(&(this->objLock));
         }
 
         vector<Node *> getAdj() const
@@ -54,20 +49,16 @@ class Node
 
         int getColor()
         {
-            // may not need the lock
-            omp_set_lock(&(this->objLock));
-            int c = this->color;
-            omp_unset_lock(&(this->objLock));
-            return c;
+            int col = this->color;
+            return col;
         }
 
         void setColor(int color)
         {
             // may not need the lock
-            omp_set_lock(&(this->objLock));
             this->color = color;
-            omp_unset_lock(&(this->objLock));
         }
+
         bool adjContains(Node *pNode)
         {
             vector<Node*>::iterator it = find(adj.begin(), adj.end(), pNode);
@@ -79,9 +70,8 @@ class Node
     private:
         vector<Node*> adj = {};
         int id;
-        // making a lock
-        omp_lock_t objLock;
         int color;
+        omp_lock_t nLock;
 };
 
 bool nodeComp(Node *n1, Node *n2)
@@ -94,41 +84,58 @@ void Node::reorderAdj()
     sort(this->adj.begin(), this->adj.end(), nodeComp);
 }
 
+class Edge
+{
+    public: 
+        Node *n1;
+        Node *n2;
+        Edge(Node *n1, Node *n2)
+        {
+            this->n1 = n1;
+            this->n2 = n2;
+        }
+};
+
+
 class Graph
 {
     public:
-        Graph(int numNodes);
+        Graph(int numNodes, int edges);
         ~Graph();
-        // Here we make the parallelizable functions
         void printGraph();
+        // Calling the parallelizable functions here.
+        // Wrapping them up in this easy to use function for data hiding.
         void color();
+        int getMinColoring();
+        void inspectGraph();
+
         // Delete this
         void checkGraph();
     private:
         vector<Node*> nodes = {};
-        int numNodes;
+        vector<Edge*> edges = {};
+        int numNodes;        
+        // Here we make the parallelizable functions
         void assign();
         vector<Node*> detectConflict();
 };
 
-int a = 100;
-Graph::Graph(int numNodes)
+int a = 1;
+Graph::Graph(int numNodes, int numEdges)
 {
     for (int i = 1; i <= numNodes; i++)
     {
-        //Node *aNode = new Node(i);
-        Node *aNode= new Node(i);
-        nodes.push_back(aNode);
+        nodes.push_back(new Node(i));
     }
+
     this->numNodes = numNodes;
-    srand(time(NULL) + a++);
-    int maxEdges = ((this->numNodes - 1)*this->numNodes)/2;
-    int numEdges = (int)(rand() % maxEdges)+1;
+    srand(time(NULL)+a);
+    rand();
     cout << "number of edges: " << numEdges << endl;
-    for (Node *node : nodes)
-    {
-        cout << node->getId() << endl;
-    }
+    // for (Node *node : nodes)
+    // {
+    //     cout << node->getId() << endl;
+    // }
     for (int i = 0 ; i < numEdges; i++)
     {
         // Get the position in the ordered list of nodes
@@ -146,51 +153,74 @@ Graph::Graph(int numNodes)
         }
         n1->addNode(n2);
         n2->addNode(n1);
-        cout << n1->getId() << " " << n2->getId() << endl;
+        edges.push_back(new Edge(n1,n2));
+        // cout << n1->getId() << " " << n2->getId() << endl;
+    }
+}
+
+Graph::~Graph()
+{
+    while (this->edges.size() != 0)
+    {
+        Edge *back = edges.at(edges.size()-1);
+        edges.pop_back();
+        delete back;
+    }
+
+    while (this->nodes.size() !=0)
+    {
+        Node *back = nodes.at(nodes.size()-1);
+        nodes.pop_back();
+        delete back;
     }
 }
 
 // Delete this function later
 void Graph::checkGraph()
 {
-    map<string, int> strMap;
-    for (Node *node: nodes)
+    ofstream mFile;
+    mFile.open("graphout.txt");
+    for (Edge *e: this->edges)
     {
-        vector<Node*> adjNodes = node->getAdj();
-        cout << node->getId() << " adjency list length: " << adjNodes.size() << endl;
-        cout << node->getId() << " adj: ";
-        node->printAdj();
-        cout << endl;
+        //cout << e->n1->getId() << " : " << e->n2->getId() << " -> " << e->n1->getColor() << " : " << e->n2->getColor() << endl;
+        
+        mFile << e->n1->getId() << " : " << e->n2->getId() << " -> " << e->n1->getColor() << " : " << e->n2->getColor() << "\n";
     }
-    for (Node *node: nodes)
+    for (Node *n : this->nodes)
+    {
+        // cout << n->getId() << endl;
+        mFile <<  n->getId() << "\n";
+    }
+    for (Edge *e: this->edges)
+    {
+        // cout << e->n1->getId() << " " << e->n2->getId() << endl;
+        mFile << e->n1->getId() << " " << e->n2->getId() << "\n";
+    }
+    mFile.close();
+}
+
+void Graph::inspectGraph()
+{
+    bool isInvalid = false;
+    for (Node *node: this->nodes)
     {
         for (Node *adj: node->getAdj())
         {
-            string s = "";
-            if (adj->getId() > node->getId())
+            if (adj->getColor() == node->getColor())
             {
-                s += to_string(node->getId());
-                s += ":";
-                s += to_string(adj->getId());
+                isInvalid = true;
+                cout << adj->getId() << " : " << node->getId() << " and both have the same colour, namely: " << node->getColor() << endl;
             }
-            else
-            {
-                s += to_string(adj->getId());
-                s += ":";
-                s += to_string(node->getId());
-            }
-            strMap[s] += 1;
         }
     }
-    for (map<string, int>::iterator it = strMap.begin(); it != strMap.end(); it++)
+    if (isInvalid)
     {
-        cout << it->first << ", " << it->second << endl;
+        cout << "You have a problem! Two nodes with an adacent node of the same colour" << endl;
     }
 }
-// Do not need this function
+
 void Graph::printGraph()
 {
-    map<string, int> strMap;
     for (Node *node: nodes)
     {
         vector<Node*> adjNodes = node->getAdj();
@@ -199,7 +229,6 @@ void Graph::printGraph()
         node->printAdj();
         cout << endl;
     }
-
 }
 
 void Graph::color()
@@ -212,7 +241,7 @@ void Graph::color()
         this->assign();
         conflicts = this->detectConflict();
         i++;
-        if (i > 100 )
+        if (i > 1000 )
         {
             cout << "=============== You've entered an invalid state ==============" << endl;
             break;
@@ -220,11 +249,22 @@ void Graph::color()
     }
 }
 
+int Graph::getMinColoring()
+{
+    int minC = 1;
+    for (Node *n: this->nodes)
+    {
+        if (minC < n->getColor())
+            minC = n->getColor();
+    }
+    return minC;
+}
+
 void Graph::assign()
 {
     // Doing nothing useful
     #pragma omp parallel for
-    for (int i=0;i<nodes.size();i++) {
+    for (int i=0; i < nodes.size(); i++) {
         // Each thread should check its neighbours and make a decision
         Node *node = nodes.at(i);
         int minC = 1; // Lowest possible color;
@@ -261,30 +301,57 @@ vector<Node*> Graph::detectConflict()
             }
         }
     }
-    cout << "-------------- More than " << conflicts.size() << "nodes in CONFLICT ------------" << endl;
+    cout << "-------------- More than " << conflicts.size() << " nodes in CONFLICT ------------" << endl;
 
     return conflicts;
 }
 
-Graph::~Graph()
-{
-    while (nodes.size() !=0)
-    {
-        Node *back = nodes.at(nodes.size()-1);
-        nodes.pop_back();
-        delete back;
-    }
-}
-
 // My Main function
-int main()
+int main(int argc, char *argv[])
 {
-    int t = 3;
-    Graph aGraph(100);
-    aGraph.printGraph();
+    int t=1, n = 3, e = 1;
+    if (argc>1) {
+        n = atoi(argv[1]);
+        printf("Using %d nodes\n",n);
+        if (argc>2) {
+            e = atoi(argv[2]);
+            printf("Using %d edges\n",t);
+            if (argc > 3)
+            {
+                t = atoi(argv[3]);
+                printf("Using %d threads\n",t);
+            }
+        }
+    }
+    int maxEdges = ((n - 1)*n)/2;
+    if (n < 3)
+    {    
+        cout << "Error: Not enough nodes!" << endl;
+        return -1;
+    }
+    else if (e < 1)
+    {
+        cout << "Error: Not enough edges!" << endl;
+        return -1;
+    }
+    else if (e > maxEdges)
+    {
+        cout << "Error: Exceeded the maximum number of edges: "<< maxEdges << "; edges: " << e << endl;
+        return -1;
+    }
+
+    // Main function
+    Graph aGraph(n, e);
     omp_set_num_threads(t);
+    auto start = chrono::high_resolution_clock::now();
     aGraph.color();
-    cout << "-----------------" <<endl;
-    aGraph.printGraph();
+    auto end = chrono::high_resolution_clock::now();
+    cout << "--------------------------" << endl;
+    chrono::duration<double> dur = end - start;
+    cout << "Run time: "  << dur.count() << endl;
+    cout << "Minimum number of colors required: " << aGraph.getMinColoring() << endl;
+    cout << "--------------------------" << endl;
+    aGraph.inspectGraph();
+    aGraph.checkGraph();
     cout << "Done the main" << endl;
 }
