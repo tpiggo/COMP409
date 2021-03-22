@@ -8,6 +8,7 @@
 #include <map>
 #include <chrono>
 #include <fstream>
+#include <unordered_set>
 using namespace std;
 
 class Node
@@ -118,10 +119,11 @@ class Graph
     private:
         vector<Node*> nodes = {};
         vector<Edge*> edges = {};
+        vector<Node*> conflicts = {};
         int numNodes;        
         // Here we make the parallelizable functions
-        void assign(vector<Node*> conflicts);
-        vector<Node*> detectConflict(vector<Node*> conflicts);
+        void assign();
+        vector<Node*> detectConflict();
 };
 
 int a = 1;
@@ -201,22 +203,35 @@ void Graph::checkGraph()
 
 void Graph::inspectGraph()
 {
+    unordered_set<int> uSet;
     bool isInvalid = false;
+    int conf = 0;
     for (Node *node: this->nodes)
     {
         for (Node *adj: node->getAdj())
         {
+            uSet.insert(adj->getColor());
             if (adj->getColor() == node->getColor())
             {
                 isInvalid = true;
                 cout << adj->getId() << " : " << node->getId() << " and both have the same colour, namely: " << node->getColor() << endl;
-            }
+                conf++;
+            } 
+        }
+
+        if (node->getColor() == 0)
+        {
+            isInvalid = true;
+            cout << node->getId() << " has colour 0!" << endl;
         }
     }
     if (isInvalid)
     {
         cout << "You have a problem! Two nodes with an adacent node of the same colour" << endl;
     }
+    cout << "Number of colors in the unordered list is " << uSet.size() << endl;
+    cout << "Number of conflicts in our graph " << (conf/2) << endl;
+
 }
 
 void Graph::printGraph()
@@ -234,14 +249,14 @@ void Graph::printGraph()
 void Graph::color()
 {
     // All nodes are conflicting right now.
-    vector<Node*> conflicts(nodes);
+    this->conflicts = nodes;
     int i = 0;
-    while (conflicts.size() != 0 )
+    while (this->conflicts.size() != 0 )
     {
-        this->assign(conflicts);
-        conflicts = this->detectConflict(conflicts);
+        this->assign();
+        this->conflicts = this->detectConflict();
         i++;
-        if (i > 1000 )
+        if (i > 100 )
         {
             cout << "=============== You've entered an invalid state ==============" << endl;
             break;
@@ -271,48 +286,71 @@ int Graph::getMinDegree()
     return minD;
 }
 
-void Graph::assign(vector<Node*> conflicts)
+void Graph::assign()
 {
-    // Doing nothing useful
     #pragma omp parallel for
-    for (int i=0; i < conflicts.size(); i++) {
+    for (int i=0; i < this->conflicts.size(); i++) {
         // Each thread should check its neighbours and make a decision
-        Node *node = conflicts.at(i);
+        Node *node = this->conflicts.at(i);
         int minC = 1; // Lowest possible color;
+        unordered_set<int> colorSet;
+
         for (Node *pNode : node->getAdj())
         {
-            if (pNode->getColor() == minC)
+            colorSet.insert(pNode->getColor());
+        }
+
+        for (int i = 1; i <= this->numNodes; i++)
+        {
+            if (colorSet.find(i) == colorSet.end()) 
             {
-                minC++;
+                minC = i;
+                break;
             }
         }
+
         node->setColor(minC);
     }
 }
 
-vector<Node*> Graph::detectConflict(vector<Node*> conflicts)
+vector<Node*> Graph::detectConflict()
 {
+    unordered_set<Node*> nodeSet;
     vector<Node*> newConflicts;
     #pragma omp parallel for
-    for (int i=0;i < conflicts.size(); i++) {
+    for (int i = 0;i < this->conflicts.size(); i++) {
         // Each thread should check its neighbours and make a decision
-        Node *node = conflicts.at(i);
-        node->reorderAdj();
+        Node *node = this->conflicts.at(i);
         for (Node *pNode : node->getAdj())
         {
+
             if (pNode->getColor() == node->getColor())
             {
-                #pragma omp critical
+                // choose the min!
+                if (pNode->getId() > node->getId())
                 {
-                    newConflicts.push_back(node);
+                    #pragma omp critical
+                    {
+                        nodeSet.insert(node);
+                    }
                 }
-                // You're done
-                break;
+                else 
+                {
+                    #pragma omp critical
+                    {
+                        nodeSet.insert(pNode);
+                    }
+                }
             }
         }
     }
-    cout << "-------------- " << newConflicts.size() << " nodes in CONFLICT ------------" << endl;
 
+    for (Node *pNode: nodeSet)
+    {
+        newConflicts.push_back(pNode);
+    }
+
+    // cout << "-------------- " << newConflicts.size() << " nodes in CONFLICT ------------" << endl;
     return newConflicts;
 }
 
@@ -355,10 +393,11 @@ int main(int argc, char *argv[])
     Graph aGraph(n, e);
     omp_set_num_threads(t);
 
+    cout << "== start coloring == " << endl;
     auto start = chrono::high_resolution_clock::now();
     aGraph.color();
     auto end = chrono::high_resolution_clock::now();
-
+    cout << "== end coloring == " << endl;
     cout << "--------------------------" << endl;
     chrono::duration<double> dur = end - start;
     auto dur2 = end - start;
@@ -368,6 +407,7 @@ int main(int argc, char *argv[])
     cout << "Minimum node degree: " << aGraph.getMinDegree() << endl;
     cout << "--------------------------" << endl;
     aGraph.inspectGraph();
-    aGraph.checkGraph();
+    // aGraph.checkGraph();
+
     cout << "Done the main" << endl;
 }
