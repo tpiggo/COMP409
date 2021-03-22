@@ -110,8 +110,9 @@ class Graph
         // Wrapping them up in this easy to use function for data hiding.
         void color();
         int getMinColoring();
+        int getMinDegree();
+        // inspector function
         void inspectGraph();
-
         // Delete this
         void checkGraph();
     private:
@@ -135,10 +136,6 @@ Graph::Graph(int numNodes, int numEdges)
     srand(time(NULL)+a);
     rand();
     cout << "number of edges: " << numEdges << endl;
-    // for (Node *node : nodes)
-    // {
-    //     cout << node->getId() << endl;
-    // }
     for (int i = 0 ; i < numEdges; i++)
     {
         // Get the position in the ordered list of nodes
@@ -263,6 +260,17 @@ int Graph::getMinColoring()
     return minC;
 }
 
+int Graph::getMinDegree()
+{
+    int minD = this->nodes.size();
+    for (Node *n: this->nodes)
+    {
+        if (minD > n->getAdj().size())
+            minD = n->getAdj().size();
+    }
+    return minD;
+}
+
 void Graph::assign(vector<Node*> conflicts)
 {
     // Doing nothing useful
@@ -357,6 +365,7 @@ int main(int argc, char *argv[])
     cout << "Run time: "  << dur.count() << endl;
     cout << "Run time: "  << dur2/chrono::milliseconds(1) << "in ms." << endl;
     cout << "Minimum number of colors required: " << aGraph.getMinColoring() << endl;
+    cout << "Minimum node degree: " << aGraph.getMinDegree() << endl;
     cout << "--------------------------" << endl;
     aGraph.inspectGraph();
     aGraph.checkGraph();
