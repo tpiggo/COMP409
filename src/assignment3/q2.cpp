@@ -3,13 +3,19 @@
 #include <vector>
 #include <cstdlib>
 #include <algorithm>
-#include <string>
 #include <time.h>
-#include <map>
 #include <chrono>
 #include <fstream>
 #include <unordered_set>
 using namespace std;
+
+/**
+ * TODO: Only getting a speedup of around 1.333 from 1 to 8 threads. 
+ * We may need to put nodes into the graph and make it all public while 
+ * Nodes are private?
+ * 
+ * 
+ */ 
 
 class Node
 {
@@ -69,35 +75,10 @@ class Node
             return it != adj.end();
         }
 
-        void reorderAdj();
-
     private:
         vector<Node*> adj = {};
         int id;
         int color;
-        omp_lock_t nLock;
-};
-
-bool nodeComp(Node *n1, Node *n2)
-{
-    return n1->getColor() < n2->getColor();
-}
-// reorder the adjacency list in terms of color
-void Node::reorderAdj()
-{
-    sort(this->adj.begin(), this->adj.end(), nodeComp);
-}
-
-class Edge
-{
-    public: 
-        Node *n1;
-        Node *n2;
-        Edge(Node *n1, Node *n2)
-        {
-            this->n1 = n1;
-            this->n2 = n2;
-        }
 };
 
 
@@ -106,7 +87,6 @@ class Graph
     public:
         Graph(int numNodes, int edges);
         ~Graph();
-        void printGraph();
         // Calling the parallelizable functions here.
         // Wrapping them up in this easy to use function for data hiding.
         void color();
@@ -114,18 +94,17 @@ class Graph
         int getMinDegree();
         // inspector function
         void inspectGraph();
-        // Delete this
-        void checkGraph();
     private:
         vector<Node*> nodes = {};
-        vector<Edge*> edges = {};
         vector<Node*> conflicts = {};
         int numNodes;        
         // Here we make the parallelizable functions
         void assign();
         vector<Node*> detectConflict();
+        vector<Node*> detectConflict2();
 };
 
+// Not the most efficient way of building a graph :(
 int a = 1;
 Graph::Graph(int numNodes, int numEdges)
 {
@@ -155,20 +134,11 @@ Graph::Graph(int numNodes, int numEdges)
         }
         n1->addNode(n2);
         n2->addNode(n1);
-        edges.push_back(new Edge(n1,n2));
-        // cout << n1->getId() << " " << n2->getId() << endl;
     }
 }
 
 Graph::~Graph()
 {
-    while (this->edges.size() != 0)
-    {
-        Edge *back = edges.at(edges.size()-1);
-        edges.pop_back();
-        delete back;
-    }
-
     while (this->nodes.size() !=0)
     {
         Node *back = nodes.at(nodes.size()-1);
@@ -182,68 +152,28 @@ void Graph::checkGraph()
 {
     ofstream mFile;
     mFile.open("graphout.txt");
-    for (Edge *e: this->edges)
-    {
-        //cout << e->n1->getId() << " : " << e->n2->getId() << " -> " << e->n1->getColor() << " : " << e->n2->getColor() << endl;
-        
-        mFile << e->n1->getId() << " : " << e->n2->getId() << " -> " << e->n1->getColor() << " : " << e->n2->getColor() << "\n";
-    }
     for (Node *n : this->nodes)
     {
         // cout << n->getId() << endl;
         mFile <<  n->getId() << "\n";
     }
-    for (Edge *e: this->edges)
-    {
-        // cout << e->n1->getId() << " " << e->n2->getId() << endl;
-        mFile << e->n1->getId() << " " << e->n2->getId() << "\n";
-    }
+
     mFile.close();
 }
 
 void Graph::inspectGraph()
 {
-    unordered_set<int> uSet;
-    bool isInvalid = false;
-    int conf = 0;
-    for (Node *node: this->nodes)
+    this->conflicts = nodes;
+    this->conflicts = this->detectConflict();
+    if (this->conflicts.size() != 0)
     {
-        for (Node *adj: node->getAdj())
-        {
-            uSet.insert(adj->getColor());
-            if (adj->getColor() == node->getColor())
-            {
-                isInvalid = true;
-                cout << adj->getId() << " : " << node->getId() << " and both have the same colour, namely: " << node->getColor() << endl;
-                conf++;
-            } 
-        }
-
-        if (node->getColor() == 0)
-        {
-            isInvalid = true;
-            cout << node->getId() << " has colour 0!" << endl;
-        }
+        cout << "ERROR: You have conflicts!" << endl;
     }
-    if (isInvalid)
+    else 
     {
-        cout << "You have a problem! Two nodes with an adacent node of the same colour" << endl;
+        cout << "Passed: No conflicts!" << endl;
     }
-    cout << "Number of colors in the unordered list is " << uSet.size() << endl;
-    cout << "Number of conflicts in our graph " << (conf/2) << endl;
 
-}
-
-void Graph::printGraph()
-{
-    for (Node *node: nodes)
-    {
-        vector<Node*> adjNodes = node->getAdj();
-        cout << node->getId() << " adjency list length: " << adjNodes.size() << endl;
-        cout << node->getId() << " with color: " << node->getColor() << " ; with adj: ";
-        node->printAdj();
-        cout << endl;
-    }
 }
 
 void Graph::color()
@@ -256,7 +186,7 @@ void Graph::color()
         this->assign();
         this->conflicts = this->detectConflict();
         i++;
-        if (i > 100 )
+        if (i > this->numNodes)
         {
             cout << "=============== You've entered an invalid state ==============" << endl;
             break;
@@ -294,7 +224,7 @@ void Graph::assign()
         Node *node = this->conflicts.at(i);
         int minC = 1; // Lowest possible color;
         unordered_set<int> colorSet;
-
+        // Create a hash set of the colors adjacent to your node.
         for (Node *pNode : node->getAdj())
         {
             colorSet.insert(pNode->getColor());
@@ -308,14 +238,12 @@ void Graph::assign()
                 break;
             }
         }
-
         node->setColor(minC);
     }
 }
 
 vector<Node*> Graph::detectConflict()
 {
-    unordered_set<Node*> nodeSet;
     vector<Node*> newConflicts;
     #pragma omp parallel for
     for (int i = 0;i < this->conflicts.size(); i++) {
@@ -326,31 +254,53 @@ vector<Node*> Graph::detectConflict()
 
             if (pNode->getColor() == node->getColor())
             {
-                // choose the min!
-                if (pNode->getId() > node->getId())
+                // choose the max!
+                if (pNode->getId() < node->getId())
                 {
                     #pragma omp critical
-                    {
-                        nodeSet.insert(node);
-                    }
-                }
-                else 
-                {
-                    #pragma omp critical
-                    {
-                        nodeSet.insert(pNode);
-                    }
+                        newConflicts.push_back(node);
+                    // Done!
+                    break;
                 }
             }
         }
     }
 
-    for (Node *pNode: nodeSet)
-    {
-        newConflicts.push_back(pNode);
-    }
+    return newConflicts;
+}
 
-    // cout << "-------------- " << newConflicts.size() << " nodes in CONFLICT ------------" << endl;
+// Faster less lock contention way of doing the detecting of the conflict
+vector<Node*> Graph::detectConflict2()
+{
+    vector<Node*> newConflicts;
+    #pragma omp parallel 
+    {
+        // local 
+        vector<Node*> threadConf;
+        #pragma omp for nowait
+        for (int i = 0; i < this->conflicts.size(); i++) 
+        {
+            // Each thread should check its neighbours and make a decision
+            Node *node = this->conflicts.at(i);
+            for (Node *pNode : node->getAdj())
+            {
+
+                if (pNode->getColor() == node->getColor())
+                {
+                    // choose the max!
+                    if (pNode->getId() < node->getId())
+                    {
+                        threadConf.push_back(node);
+                        // Done!
+                        break;
+                    }
+                }
+            }
+        }
+        // Trying to reduce lock contention!
+        #pragma omp critical
+            newConflicts.insert(newConflicts.end(), threadConf.begin(), threadConf.end());
+    }
     return newConflicts;
 }
 
@@ -360,17 +310,18 @@ int main(int argc, char *argv[])
     int t=1, n = 3, e = 1;
     if (argc>1) {
         n = atoi(argv[1]);
-        printf("Using %d nodes\n",n);
+        printf("Using %d nodes. ",n);
         if (argc>2) {
             e = atoi(argv[2]);
-            printf("Using %d edges\n", e);
+            printf("Using %d edges. ", e);
             if (argc > 3)
             {
                 t = atoi(argv[3]);
-                printf("Using %d threads\n", t);
+                printf("Using %d threads", t);
             }
         }
     }
+    cout << endl;
     int maxEdges = ((n - 1)*n)/2;
     if (n < 3)
     {    
@@ -407,7 +358,6 @@ int main(int argc, char *argv[])
     cout << "Minimum node degree: " << aGraph.getMinDegree() << endl;
     cout << "--------------------------" << endl;
     aGraph.inspectGraph();
-    // aGraph.checkGraph();
 
     cout << "Done the main" << endl;
 }
