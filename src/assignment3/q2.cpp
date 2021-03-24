@@ -9,14 +9,6 @@
 #include <unordered_set>
 using namespace std;
 
-/**
- * TODO: Only getting a speedup of around 1.333 from 1 to 8 threads. 
- * We may need to put nodes into the graph and make it all public while 
- * Nodes are private?
- * 
- * 
- */ 
-
 class Node
 {
     public:
@@ -145,20 +137,6 @@ Graph::~Graph()
         nodes.pop_back();
         delete back;
     }
-}
-
-// Delete this function later
-void Graph::checkGraph()
-{
-    ofstream mFile;
-    mFile.open("graphout.txt");
-    for (Node *n : this->nodes)
-    {
-        // cout << n->getId() << endl;
-        mFile <<  n->getId() << "\n";
-    }
-
-    mFile.close();
 }
 
 void Graph::inspectGraph()
@@ -344,11 +322,11 @@ int main(int argc, char *argv[])
     Graph aGraph(n, e);
     omp_set_num_threads(t);
 
-    cout << "== start coloring == " << endl;
+    cout << "=== start coloring ===" << endl;
     auto start = chrono::high_resolution_clock::now();
     aGraph.color();
     auto end = chrono::high_resolution_clock::now();
-    cout << "== end coloring == " << endl;
+    cout << "=== end coloring ===" << endl;
     cout << "--------------------------" << endl;
     chrono::duration<double> dur = end - start;
     auto dur2 = end - start;
@@ -358,6 +336,5 @@ int main(int argc, char *argv[])
     cout << "Minimum node degree: " << aGraph.getMinDegree() << endl;
     cout << "--------------------------" << endl;
     aGraph.inspectGraph();
-
     cout << "Done the main" << endl;
 }
