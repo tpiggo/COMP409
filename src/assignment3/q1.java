@@ -4,7 +4,6 @@ package assignment3;
  * Always run rmdir -f assignment3 before committing
  */
 import java.io.FileWriter;
-import java.nio.channels.AcceptPendingException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -13,8 +12,6 @@ import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -187,8 +184,8 @@ class DFATask implements Callable<EncodingType[]> {
     DFAGraph dfa;
     String aString;
     int id;
-    int maxStartState = 5;
-    EncodingType[] aEncoding =  new EncodingType[5];
+    EncodingType[] aEncoding =  new EncodingType[1];
+    int [] startStates;
     
     public DFATask(DFAGraph pDFA, String inputString, int pId) {
         charQueue = new LinkedList<>();
@@ -199,51 +196,49 @@ class DFATask implements Callable<EncodingType[]> {
         for (int i = 0; i < aEncoding.length; i++){
             aEncoding[i] = new EncodingType(dfa.getState(i+1), dfa.getState(i+1), "");
         }
-    }
-
-    private void pushEndState(State currentState, EncodingType eType) {
-        if (currentState != null && currentState.equals(dfa.getState(5))) {
-            while (!charQueue.isEmpty()) {
-                eType.aString.append(charQueue.poll());
-            }
-        } else if (currentState != null && currentState != dfa.getState(5)) {
-            while (!charQueue.isEmpty()) {
-                charQueue.poll();
-                eType.aString.append("_");
-            }
-        }
+        startStates = new int[]{1,2,3,4,5};
     }
 
     private EncodingType simulateDFA(int startPos, State startState) {
         State prevState = null;
         State currentState = startState;
         StringBuilder fBuilder = new StringBuilder();
+        int j = 0;
         // Main body. Read the string char by char and perform the necessary computations
         for (int i = startPos; i < aString.length(); i++) {
             prevState = currentState;
             currentState = currentState.readChar(aString.charAt(i));
             if (currentState == null && prevState.equals(dfa.getState(5))) {
-                while (!charQueue.isEmpty()) {
-                    fBuilder.append(charQueue.poll());
-                }
                 fBuilder.append("_");
                 currentState = dfa.getState(1);
+                j = i-startPos;
             } else if (currentState == null && !prevState.equals(dfa.getState(5))) {
-                while (!charQueue.isEmpty()) {
-                    charQueue.poll();
-                    fBuilder.append("_");
+                String a = "";
+                for (int k = 0; k < (fBuilder.length()-startPos); k++){
+                    a = a+ "_";
                 }
+                fBuilder.replace(startPos, fBuilder.length(), a);
                 if (aString.charAt(i) > 48 && aString.charAt(i) < 57)
-                    i--;                   
-                else 
+                    i--;
+
+                else
                     fBuilder.append("_");
                 currentState = dfa.getState(1);
+                j = i-startPos >= 0?i:0;
             } else {
-                charQueue.add(aString.charAt(i));
+                fBuilder.append(aString.charAt(i));
             }
         }
+
         EncodingType aEncoding = new EncodingType(startState, currentState, fBuilder.toString());
-        pushEndState(currentState, aEncoding);
+
+        if (currentState != null && currentState != dfa.getState(5)) {
+            String a = "";
+            for (int k = 0; k < (fBuilder.length()-startPos); k++){
+                a = a+ "_";
+            }
+            fBuilder.replace(j, fBuilder.length(), a);
+        }
         
         return aEncoding;
     }
@@ -258,21 +253,20 @@ class DFATask implements Callable<EncodingType[]> {
             currentState = currentState.readChar(aString.charAt(pos));
             if (currentState == null) {
                 if (prevState.equals(dfa.getState(5))) {
-                    while (!charQueue.isEmpty()) {
-                        fBuilder.append(charQueue.poll());
-                    }
                     fBuilder.append("_");
                 } else {
-                    while (!charQueue.isEmpty()) {
-                        charQueue.poll();
-                        fBuilder.append("_");
+                    String a = "";
+                    for (int j = 0; j < (pos-pEncoding.pos); j++){
+                        a = a+ "_";
                     }
+                    fBuilder.replace(0, pos - pEncoding.pos, a);
     
                     if (aString.charAt(pos) > 48 && aString.charAt(pos) < 57)
                         pos--;
                     else 
-                    fBuilder.append("_");
+                        fBuilder.append("_");
                 }
+
                 if (pos < 0) {
                     pos = 0;
                 }
@@ -281,10 +275,11 @@ class DFATask implements Callable<EncodingType[]> {
                 pEncoding.end = dfa.getState(1);
                 break;
             } else {
-                charQueue.add(aString.charAt(pos));
+                fBuilder.append(aString.charAt(pos));
             }
         }
-        
+
+        int minId = 0;
         for (int i = 0; i < aEncoding.length; i++) {
             if (i != id && pEncoding.pos != 0 && aEncoding[i].pos == pEncoding.pos && aEncoding[i].end == pEncoding.end ) {
                 // This element was at the same place!
@@ -294,15 +289,19 @@ class DFATask implements Callable<EncodingType[]> {
         }
 
         pEncoding.aString.append(fBuilder.toString());
-        pEncoding.pos = pos;
-        // Reached the end of the string :0
-        if (pos >= aString.length()){
-            if (charQueue.isEmpty())
-                pushEndState(currentState, pEncoding);
-            return true;
+        boolean returnable = false;
+        if (pos >= aString.length() && (!currentState.equals(dfa.getState(5)) ||  !prevState.equals(dfa.getState(5)))){
+            String a = "";
+            for (int j = 0; j < (pos-pEncoding.pos); j++){
+                a = a+ "_";
+            }
+            pEncoding.aString.replace(pEncoding.pos, pos, a);
+            returnable = true;
+        } else if (pos >= aString.length()) {
+            returnable = true;
         }
-
-        return false;
+        pEncoding.pos = pos;
+        return returnable;
     }
 
 
@@ -310,14 +309,11 @@ class DFATask implements Callable<EncodingType[]> {
         // Read only small bits until ALL machines converge, and read it once.
         int j = 0;
         int d = 0;
-        while (d < 5) {
+        while (true) {
             if (readToNextBreak(aEncoding[j], j)) {
-                d++;
+                break;
             }
-            if (aEncoding[j].aString.length() >= 49){
-                System.out.println("here " + aEncoding[j].aString.length());
-            }
-            j = (j+1)%5;
+            j = (j+1)%aEncoding.length;
         }
 
         EncodingType finalEncoding = simulateDFA(aEncoding[0].pos, aEncoding[0].end);
@@ -340,7 +336,6 @@ class NormalRunnable implements Runnable {
     private ArrayList<Future<EncodingType[]>> aFutures;
     private DFATask[] subtasks;
     private DFAGraph aDFA;
-    private Queue<Character> charQueue;
 
 
     public NormalRunnable(int oThreads, String pString, DFAGraph dfa) {
@@ -351,8 +346,6 @@ class NormalRunnable implements Runnable {
         }
         
         aString = pString.substring(0, partition);
-        
-        charQueue = new LinkedList<>();
         aFutures = new ArrayList<>();
         subtasks = new DFATask[oThreads];
         
@@ -373,7 +366,7 @@ class NormalRunnable implements Runnable {
         for (int i = 0; i < subtasks.length; i++) {
             aFutures.add(aReader.simulDFA(subtasks[i]));
         }
-
+        int lastPos = 0;
         State prevState = null;
         State currentState = aDFA.getState(1);
         // Main body. Read the string char by char and perform the necessary computations
@@ -381,36 +374,32 @@ class NormalRunnable implements Runnable {
             prevState = currentState;
             currentState = currentState.readChar(aString.charAt(i));
             if (currentState == null && prevState.equals(aDFA.getState(5))) {
-                while (!charQueue.isEmpty()) {
-                    finalString.append(charQueue.poll());
-                }
                 finalString.append("_");
                 currentState = aDFA.getState(1);
+                lastPos = i;
             } else if (currentState == null && !prevState.equals(aDFA.getState(5))) {
-                while (!charQueue.isEmpty()) {
-                    charQueue.poll();
-                    finalString.append("_");
+                String a = "";
+                for (int j = 0; j < (i-lastPos); j++){
+                    a = a+ "_";
                 }
-
+                finalString.replace(lastPos, i, a);
                 if (aString.charAt(i) > 48 && aString.charAt(i) < 57)
                     i--;
-                else 
+                else
                     finalString.append("_");
                 currentState = aDFA.getState(1);
+                lastPos = i >= 0?i:0;
             } else {
-                charQueue.add(aString.charAt(i));
+                finalString.append(aString.charAt(i));
             }
         }
-        
-        if (currentState != null && currentState.equals(aDFA.getState(5))) {
-            while (!charQueue.isEmpty()) {
-                finalString.append(charQueue.poll());
+
+        if (currentState != null && currentState != aDFA.getState(5)) {
+            String a = "";
+            for (int j = 0; j < (finalString.length()-lastPos); j++){
+                a = a+ "_";
             }
-        } else if (currentState != null && currentState != aDFA.getState(5)) {
-            while (!charQueue.isEmpty()) {
-                charQueue.poll();
-                finalString.append("_");
-            }
+            finalString.replace(lastPos, finalString.length(), a);
         }
         // Set the end state
         endState = prevState;
@@ -462,7 +451,7 @@ public class q1 {
             // System.out.println("Running DFA on " + aString);
             fileWriter.write("Running DFA on: " + aString + "\n");
             System.out.println("Starting executor");
-            NormalRunnable nRun = new NormalRunnable(1, aString, mDFA);
+            NormalRunnable nRun = new NormalRunnable(0, aString, mDFA);
             Thread t = new Thread(nRun);
             // Start the task
             long start = System.currentTimeMillis();

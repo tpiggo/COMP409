@@ -7,15 +7,6 @@ import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 
-
-enum Faculty {
-    ARTS, SCIENCE, ENGINEERING;
-    @Override
-    public String toString() {
-        return super.toString();
-    }
-}
-
 class SemStudent implements Runnable{
     private SemBreakoutRoom aRoom;
     private Faculty aFaculty;
