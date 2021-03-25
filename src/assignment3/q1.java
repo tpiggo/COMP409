@@ -16,8 +16,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import javax.sound.sampled.AudioFormat.Encoding;
-
+/**
+ * TODO: Rebuild the object for encoding an output, give it a better name for that ADT
+ *       and allow for merging with other DFA start positions within the path.
+ *
+ */
 
 class Transition {
     private Set<Character> characters;
@@ -155,15 +158,6 @@ class DFAReader{
         this.dfa = pDfa;
         this.id = 1;
     }
-    /**
-     * get the list of the simulations
-     * @return List of encoded types.
-     */
-    public Future<EncodingType[]> simulDFA(String aString) {
-        return executor.submit(
-            new DFATask(this.dfa, aString, ++this.id)
-            );
-    }
 
     /**
      * get the list of the simulations
@@ -184,28 +178,31 @@ class DFATask implements Callable<EncodingType[]> {
     DFAGraph dfa;
     String aString;
     int id;
-    EncodingType[] aEncoding =  new EncodingType[1];
-    int [] startStates;
+    int maxPos;
+    EncodingType[] aEncoding =  new EncodingType[5];
+    int [] converge;
     
     public DFATask(DFAGraph pDFA, String inputString, int pId) {
         charQueue = new LinkedList<>();
         dfa = pDFA;
         aString = inputString;
         id = pId;
+        maxPos = 1;
         // Create empty encodings
         for (int i = 0; i < aEncoding.length; i++){
             aEncoding[i] = new EncodingType(dfa.getState(i+1), dfa.getState(i+1), "");
         }
-        startStates = new int[]{1,2,3,4,5};
+        converge = new int[]{1,2,3,4,5};
     }
 
     private EncodingType simulateDFA(int startPos, State startState) {
-        State prevState = null;
+        State prevState;
         State currentState = startState;
         StringBuilder fBuilder = new StringBuilder();
         int j = 0;
         // Main body. Read the string char by char and perform the necessary computations
-        for (int i = startPos; i < aString.length(); i++) {
+        int i = startPos;
+        for (; i < aString.length(); i++) {
             prevState = currentState;
             currentState = currentState.readChar(aString.charAt(i));
             if (currentState == null && prevState.equals(dfa.getState(5))) {
@@ -214,13 +211,12 @@ class DFATask implements Callable<EncodingType[]> {
                 j = i-startPos;
             } else if (currentState == null && !prevState.equals(dfa.getState(5))) {
                 String a = "";
-                for (int k = 0; k < (fBuilder.length()-startPos); k++){
+                for (int k = 0; k < ((i-startPos)-j); k++){
                     a = a+ "_";
                 }
-                fBuilder.replace(startPos, fBuilder.length(), a);
+                fBuilder.replace(j, (i-startPos), a);
                 if (aString.charAt(i) > 48 && aString.charAt(i) < 57)
                     i--;
-
                 else
                     fBuilder.append("_");
                 currentState = dfa.getState(1);
@@ -230,20 +226,19 @@ class DFATask implements Callable<EncodingType[]> {
             }
         }
 
-        EncodingType aEncoding = new EncodingType(startState, currentState, fBuilder.toString());
-
         if (currentState != null && currentState != dfa.getState(5)) {
             String a = "";
-            for (int k = 0; k < (fBuilder.length()-startPos); k++){
+            for (int k = 0; k < ((i-startPos) - j); k++){
                 a = a+ "_";
             }
             fBuilder.replace(j, fBuilder.length(), a);
         }
-        
+        EncodingType aEncoding = new EncodingType(startState, currentState, fBuilder.toString());
+
         return aEncoding;
     }
 
-    private boolean readToNextBreak(EncodingType pEncoding, int id){
+    private boolean readToNextBreak(EncodingType pEncoding, int pId){
         State prevState = null;
         State currentState = pEncoding.end;
         StringBuilder fBuilder = new StringBuilder();
@@ -254,52 +249,46 @@ class DFATask implements Callable<EncodingType[]> {
             if (currentState == null) {
                 if (prevState.equals(dfa.getState(5))) {
                     fBuilder.append("_");
+                    currentState = dfa.getState(1);
                 } else {
                     String a = "";
                     for (int j = 0; j < (pos-pEncoding.pos); j++){
-                        a = a+ "_";
+                        a = a + "_";
                     }
-                    fBuilder.replace(0, pos - pEncoding.pos, a);
-    
+                    fBuilder.replace(0, a.length(), a);
+
                     if (aString.charAt(pos) > 48 && aString.charAt(pos) < 57)
                         pos--;
-                    else 
+                    else
                         fBuilder.append("_");
+                    currentState = dfa.getState(1);
                 }
 
                 if (pos < 0) {
                     pos = 0;
                 }
-
                 pos++;
-                pEncoding.end = dfa.getState(1);
                 break;
             } else {
                 fBuilder.append(aString.charAt(pos));
             }
         }
-
-        int minId = 0;
-        for (int i = 0; i < aEncoding.length; i++) {
-            if (i != id && pEncoding.pos != 0 && aEncoding[i].pos == pEncoding.pos && aEncoding[i].end == pEncoding.end ) {
-                // This element was at the same place!
-                aEncoding[i].aString.append(fBuilder.toString());
-                aEncoding[i].pos = pos;
-            }
-        }
+        pEncoding.end = currentState;
+        maxPos = pos;
 
         pEncoding.aString.append(fBuilder.toString());
         boolean returnable = false;
-        if (pos >= aString.length() && (!currentState.equals(dfa.getState(5)) ||  !prevState.equals(dfa.getState(5)))){
+        if (pos >= 4 && (!currentState.equals(dfa.getState(5)) ||  !prevState.equals(dfa.getState(5)))){
             String a = "";
             for (int j = 0; j < (pos-pEncoding.pos); j++){
                 a = a+ "_";
             }
             pEncoding.aString.replace(pEncoding.pos, pos, a);
             returnable = true;
-        } else if (pos >= aString.length()) {
+        } else if (pos >= 4) {
             returnable = true;
         }
+
         pEncoding.pos = pos;
         return returnable;
     }
@@ -310,19 +299,21 @@ class DFATask implements Callable<EncodingType[]> {
         int j = 0;
         int d = 0;
         while (true) {
-            if (readToNextBreak(aEncoding[j], j)) {
-                break;
+            if (converge[j] == j+1) {
+                if (readToNextBreak(aEncoding[j], j)) {
+                    break;
+                }
             }
             j = (j+1)%aEncoding.length;
         }
 
-        EncodingType finalEncoding = simulateDFA(aEncoding[0].pos, aEncoding[0].end);
-
-        for (int i = 0; i < aEncoding.length; i++) {
-            aEncoding[i].aString.append(finalEncoding.aString.toString());
-            aEncoding[i].end = finalEncoding.end;
-            aEncoding[i].pos = finalEncoding.pos;
-        }
+//        EncodingType finalEncoding = simulateDFA(aEncoding[0].pos, aEncoding[0].end);
+//
+//        for (int i = 0; i < aEncoding.length; i++) {
+//            aEncoding[i].aString.append(finalEncoding.aString.toString());
+//            aEncoding[i].end = finalEncoding.end;
+//            aEncoding[i].pos = finalEncoding.pos;
+//        }
 
         return aEncoding;
     }
