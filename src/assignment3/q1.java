@@ -7,8 +7,6 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -93,9 +91,6 @@ class DFAGraph {
     ArrayList<State> states;
     State acceptState;
     public DFAGraph() {
-        /**
-         * TODO: Make this less ugly. This set up could be improved?
-         */
         this.states = new ArrayList<>();
         // Hardcoded state creation since every state is different than the next
         State acceptNode = new State(5, Transition.fullCTransition());
@@ -174,7 +169,6 @@ class DFAReader{
 }
 
 class DFATask implements Callable<EncodingType[]> {
-    Queue<Character> charQueue;
     DFAGraph dfa;
     String aString;
     int id;
@@ -183,7 +177,6 @@ class DFATask implements Callable<EncodingType[]> {
     int [] converge;
     
     public DFATask(DFAGraph pDFA, String inputString, int pId) {
-        charQueue = new LinkedList<>();
         dfa = pDFA;
         aString = inputString;
         id = pId;
