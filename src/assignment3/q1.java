@@ -1,8 +1,4 @@
 package assignment3;
-/**
- * NOTE: Always clean the directory out from the stuff you added 
- * Always run rmdir -f assignment3 before committing
- */
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,12 +9,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
-/**
- * TODO: Rebuild the object for encoding an output, give it a better name for that ADT
- *       and allow for merging with other DFA start positions within the path.
- *
- */
 
 class Transition {
     private Set<Character> characters;
@@ -131,12 +121,13 @@ class DFAGraph {
  * Object for storing the simulation of the DFA
  */
 class EncodingType{
-    State start;
-    State end;
-    StringBuilder aString;
-    int pos = 0;
-    int lastPos = 0;
+    private State start;
+    private State end;
+    private StringBuilder aString;
+    private int pos = 0;
+    private int lastPos = 0;
     EncodingType nextPortion;
+
     public EncodingType(State pStart, State pEnd, String pString) {
         this.start = pStart;
         this.end = pEnd;
@@ -145,14 +136,83 @@ class EncodingType{
 
     public String getString() {
         EncodingType aType = nextPortion;
-        int start = pos;
+        int start = aString.length();
         while (aType != null){
             // go through the list and get the elements;
             aString.append(aType.aString.substring(start));
-            start = aType.pos;
+            start = aType.aString.length();
+            end = aType.end;
+            lastPos = aType.lastPos;
             aType = aType.nextPortion;
         }
         return aString.toString();
+    }
+    
+    public void replaceFromLast(){
+        for (int i = lastPos; i < pos; i++){
+            aString.setCharAt(i,'_');
+        }
+        lastPos = aString.length();
+    }
+
+    public void replaceFromIndex(int ind) {
+        for (int i = lastPos; i < ind; i++){
+            aString.setCharAt(i,'_');
+        }
+        lastPos = ind;
+    }
+
+    public void append(char aChar){
+        aString.append(aChar);
+    }
+
+    public void appendUnderscore(){
+        aString.append("_");
+    }
+
+    public int getLastPos() {
+        return lastPos;
+    }
+
+    public int getPos() {
+        return pos;
+    }
+
+    public State getEnd() {
+        return end;
+    }
+
+    public void setEnd(State pEnd) {
+        end = pEnd;
+    }
+
+    public void setLastPos(int pLastPos) {
+        lastPos = pLastPos;
+    }
+
+    public void setPos(int i){
+        pos = i;
+    }
+
+    public void incrementPos() {
+        pos++;
+    }
+
+    public void decrementPos() {
+        pos--;
+    }
+
+
+    public boolean areChanges(){
+       return aString.length() > lastPos;
+    }
+
+    public void commitChanges() {
+        lastPos = pos;
+    }
+
+    public State getStart() {
+        return start;
     }
 }
 
@@ -195,7 +255,7 @@ class DFATask implements Callable<EncodingType[]> {
         aString = inputString;
         id = pId;
         maxPos = 1;
-        isLast = true;
+        isLast = false;
         // Create empty encodings
         for (int i = 0; i < aEncoding.length; i++){
             aEncoding[i] = new EncodingType(dfa.getState(i+1), dfa.getState(i+1), "");
@@ -208,39 +268,30 @@ class DFATask implements Callable<EncodingType[]> {
         isLast = pIsLast;
     }
 
-    private String createUnderscores(int num){
-        StringBuilder aBuilder = new StringBuilder();
-        for (int i = 0; i < num; i++)
-            aBuilder.append("_");
-        return aBuilder.toString();
-    }
-
-    private String addUnderscores(String under, int num){
-        StringBuilder aBuilder = new StringBuilder(under);
-        for (int i = aBuilder.length(); i < num; i++)
-            aBuilder.append("_");
-        return aBuilder.toString();
-    }
-
     private void simulateDFA(EncodingType pEncoding) {
-        State prevState, currentState = pEncoding.end;
+        State prevState, currentState = pEncoding.getEnd();
         // Main body. Read the string char by char and perform the necessary computations
-        int i = pEncoding.pos;
-
+        int i = pEncoding.getPos();
+//        if (id == 1){
+//            System.out.println("Here with id 1");
+//        }
         boolean checkEncodings = true;
         for (; i < aString.length(); i++) {
             prevState = currentState;
+//            if (id == 1){
+//                System.out.println("Here with id 1");
+//            }
             currentState = currentState.readChar(aString.charAt(i));
             if (currentState == null && prevState.equals(dfa.getState(5))) {
-                pEncoding.aString.append("_");
+                pEncoding.appendUnderscore();
                 currentState = dfa.getState(1);
-                pEncoding.lastPos = i;
+                pEncoding.setLastPos(i);
                 // Logic to remove any weirdness in it.
                 if (checkEncodings){
                     int isFalse = 0;
                     for (int j = 0; j < converge.length; j++){
-                        if (converge[j] && aEncoding[j].pos > aEncoding[j].lastPos){
-                            aEncoding[j].lastPos = aEncoding[j].pos;
+                        if (converge[j] && aEncoding[j].areChanges()){
+                            aEncoding[j].commitChanges();
                             converge[j] = false;
                         } else if (!converge[j]){
                             // First one who is not merged you're done.
@@ -252,27 +303,20 @@ class DFATask implements Callable<EncodingType[]> {
                         checkEncodings = false;
                 }
             } else if (currentState == null && !prevState.equals(dfa.getState(5))) {
-                String a = createUnderscores(i-pEncoding.lastPos);
-                pEncoding.aString.replace(pEncoding.lastPos, i, a);
+                pEncoding.replaceFromIndex(i);
                 if (aString.charAt(i) > 48 && aString.charAt(i) < 57)
                     i--;
                 else
-                    pEncoding.aString.append("_");
+                    pEncoding.appendUnderscore();
                 currentState = dfa.getState(1);
                 // Logic to remove any weirdness in it.
                 if (checkEncodings){
                     int isFalse = 0;
                     for (int j = 0; j < converge.length; j++){
-                        if (converge[j] && aEncoding[j].pos > aEncoding[j].lastPos){
+                        if (converge[j] && aEncoding[j].areChanges()){
                             System.out.println("Here1");
-                            int diff = aEncoding[j].pos - aEncoding[j].lastPos;
-                            if (a.length() < diff){
-                                a = addUnderscores(a, diff);
-                                aEncoding[j].aString.replace(aEncoding[j].lastPos, aEncoding[j].pos, a);
-                            } else {
-                                aEncoding[j].aString.replace(aEncoding[j].lastPos, aEncoding[j].pos, a.substring(0, diff));
-                            }
-                            aEncoding[j].lastPos = aEncoding[j].pos;
+                            // Commits the changes without forcing us to.
+                            aEncoding[j].replaceFromLast();
                             isFalse++;
                             converge[j] = false;
                         } else if (!converge[j]){
@@ -283,73 +327,62 @@ class DFATask implements Callable<EncodingType[]> {
                     if (isFalse == 4)
                         checkEncodings = false;
                 }
-                pEncoding.lastPos = i;
+                pEncoding.setLastPos(i);
             } else {
-                pEncoding.aString.append(aString.charAt(i));
+                pEncoding.append(aString.charAt(i));
             }
         }
-        pEncoding.pos = i;
+        pEncoding.setPos(i);
         // Need to make this so that we can check as the modifier
         if (isLast && currentState != null && currentState != dfa.getState(5)){
-            String a = createUnderscores(pEncoding.pos-pEncoding.lastPos);
-            pEncoding.aString.replace(pEncoding.lastPos, pEncoding.pos, a);
+            pEncoding.replaceFromLast();
         }
 
-        pEncoding.end = currentState;
-        pEncoding.pos = i;
+        pEncoding.setEnd(currentState);
+        pEncoding.setPos(i);
     }
 
     private void readOneCharacter(EncodingType pEncoding, int pId){
-        State prevState, curState = pEncoding.end;
-        if (pEncoding.pos < aString.length()){
-            prevState = curState;
-            curState = curState.readChar(aString.charAt(pEncoding.pos));
-            if (curState == null && prevState.equals(dfa.getState(5))){
-                pEncoding.aString.append("_");
-                curState = dfa.getState(1);
-                // Fix any of the converged ones to not erase!
-                for (int j = pId-1; j >= 0; j--) {
-                    if (converge[j] && aEncoding[j].pos > aEncoding[j].lastPos){
-                        aEncoding[j].lastPos = aEncoding[j].pos;
-                    } else if (!converge[j]){
-                        // First one who is not merged you're done.
-                        break;
-                    }
+        State curState = pEncoding.getEnd();
+        State prevState = curState;
+        curState = curState.readChar(aString.charAt(pEncoding.getPos()));
+        if (curState == null && prevState.equals(dfa.getState(5))){
+            pEncoding.appendUnderscore();
+            curState = dfa.getState(1);
+            // Fix any of the converged ones to not erase!
+            for (int j = pId-1; j >= 0; j--) {
+                if (converge[j] && aEncoding[j].areChanges()){
+                    aEncoding[j].commitChanges();
+                } else if (!converge[j]){
+                    // First one who is not merged you're done.
+                    break;
                 }
-                pEncoding.lastPos = pEncoding.pos;
-            } else if (curState == null && !prevState.equals(dfa.getState(5))) {
-                String a = createUnderscores(pEncoding.pos-pEncoding.lastPos);
-                pEncoding.aString.replace(pEncoding.lastPos, pEncoding.pos, a);
-                curState = dfa.getState(1);
-                if (aString.charAt(pEncoding.pos) > 48 && aString.charAt(pEncoding.pos) < 57)
-                    pEncoding.pos--;
-                else
-                    pEncoding.aString.append("_");
-                // Need to fix those who are merged with you.
-                for (int j = pId-1; j >= 0; j--) {
-                    if (converge[j] && aEncoding[j].pos > aEncoding[j].lastPos){
-                        System.out.println("Here1");
-                        int diff = aEncoding[j].pos - aEncoding[j].lastPos;
-                        if (a.length() < diff){
-                            a = addUnderscores(a, diff);
-                            aEncoding[j].aString.replace(aEncoding[j].lastPos, aEncoding[j].pos, a);
-                        } else {
-                            aEncoding[j].aString.replace(aEncoding[j].lastPos, aEncoding[j].pos, a.substring(0, diff));
-                        }
-                        aEncoding[j].lastPos = aEncoding[j].pos;
-                    } else if (!converge[j]){
-                        // First one who is not merged you're done.
-                        break;
-                    }
-                }
-                pEncoding.lastPos = pEncoding.pos+1;
-            } else {
-                pEncoding.aString.append(aString.charAt(pEncoding.pos));
             }
-            // increment the length
-            pEncoding.pos++;
-            pEncoding.end = curState;
+            pEncoding.setLastPos(pEncoding.getPos()+1);
+        } else if (curState == null && !prevState.equals(dfa.getState(5))) {
+            pEncoding.replaceFromLast();
+            curState = dfa.getState(1);
+            if (aString.charAt(pEncoding.getPos()) > 48 && aString.charAt(pEncoding.getPos()) < 57 && pEncoding.getPos() >0 )
+                pEncoding.decrementPos();
+            else
+                pEncoding.appendUnderscore();
+            // Need to fix those who are merged with you.
+            for (int j = pId-1; j >= 0; j--) {
+                if (converge[j] && aEncoding[j].areChanges()){
+                    System.out.println("Here1");
+                    aEncoding[j].replaceFromLast();
+                } else if (!converge[j]){
+                    // First one who is not merged you're done.
+                    break;
+                }
+            }
+            pEncoding.setLastPos(pEncoding.getPos()+1);
+        } else {
+            pEncoding.append(aString.charAt(pEncoding.getPos()));
         }
+        // increment the length
+        pEncoding.incrementPos();
+        pEncoding.setEnd(curState);
     }
 
     public EncodingType[] call() throws Exception {
@@ -372,7 +405,7 @@ class DFATask implements Callable<EncodingType[]> {
             for (int i = 0; i < converge.length-1; i++){
                 if (!converge[i]) {
                     for (int k = i+1; k < converge.length; k++){
-                        if (aEncoding[i].end == aEncoding[k].end && !converge[k]){
+                        if (aEncoding[i].getEnd().equals(aEncoding[k].getEnd()) && !converge[k]){
                             converge[i] = true;
                             aEncoding[i].nextPortion = aEncoding[k];
                         }
@@ -380,15 +413,8 @@ class DFATask implements Callable<EncodingType[]> {
                 }
             }
         }
-
-        j = 0;
-        for (; j < converge.length; j++){
-            if (!converge[j]){
-                break;
-            }
-        }
-
-        simulateDFA(aEncoding[j]);
+        // Have forced everyone to converge into aEncoding[4] thus use it.
+        simulateDFA(aEncoding[4]);
         return aEncoding;
     }
 }
@@ -416,9 +442,9 @@ class NormalRunnable implements Runnable {
 
         int i = 1;
         for (; i < oThreads+1; i++) {
-            int strLen = partition*(i+1)>pString.length()?partition*(i+1):pString.length();
+            int strLen = partition*(i+1)<pString.length()?partition*(i+1):pString.length();
             String str = pString.substring((i)*partition, strLen);
-            if (i+1 < oThreads + 1){
+            if (i+1 >= oThreads + 1){
                 subtasks[i-1] = new DFATask(dfa, str, i, true);
             } else {
                 subtasks[i-1] = new DFATask(dfa, str, i);
@@ -491,15 +517,16 @@ class NormalRunnable implements Runnable {
             try {  
                 EncodingType[] eArr = future.get();
                 for (int i = 0; i < eArr.length; i++) {
-                    if (eArr[i].start.equals(endState)) {
+                    if (eArr[i].getStart().equals(endState)) {
                         // Only want to build this string once.
                         String fString = eArr[i].getString();
-                        if (fString.charAt(0) == '_') {
+                        if (fString.charAt(0) == '_' && !endState.equals(aDFA.getState(5))) {
                             String a = createUnderscores(finalString.length() - lastPos);
                             finalString.replace(lastPos, finalString.length(), a);
                         }
+                        lastPos = finalString.length() + eArr[i].getLastPos();
                         finalString.append(fString);
-                        endState = eArr[i].end;
+                        endState = eArr[i].getEnd();
                         break;
                     }
                 }
