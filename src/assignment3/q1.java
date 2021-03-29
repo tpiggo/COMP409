@@ -385,6 +385,19 @@ class DFATask implements Callable<EncodingType[]> {
         pEncoding.setEnd(curState);
     }
 
+    private void endStringFix(EncodingType pEncoding, int pId) {
+        if (isLast && pEncoding.getEnd() != null && !pEncoding.getEnd().equals(dfa.getState(5))){
+            for (int i = pId-1; i >= 0; i--) {
+                if (aEncoding[i].nextPortion != null && aEncoding[i].nextPortion.equals(pEncoding)) {
+                    // Must fix it!
+                    aEncoding[i].replaceFromLast();
+                }
+            }
+            pEncoding.replaceFromLast();
+        }
+    }
+
+
     public EncodingType[] call() throws Exception {
         // Read only small bits until ALL machines converge, and read it once.
         int j = 0;
@@ -413,8 +426,22 @@ class DFATask implements Callable<EncodingType[]> {
                 }
             }
         }
-        // Have forced everyone to converge into aEncoding[4] thus use it.
-        simulateDFA(aEncoding[4]);
+
+        int x = 0;
+
+        if (j >= aString.length()) {
+            // read the entire string with at least 2 states in parallel. This is for defense against
+            // a string which just didn't merge fully. Corner case strings.
+            for (int i = 0; i < converge.length; i++) {
+                if (!converge[i]){
+                    endStringFix(aEncoding[i], i);
+                }
+            }
+        } else {
+            // Have forced everyone to converge into aEncoding[4] thus use it.
+            simulateDFA(aEncoding[4]);
+        }
+
         return aEncoding;
     }
 }
@@ -524,7 +551,13 @@ class NormalRunnable implements Runnable {
                             String a = createUnderscores(finalString.length() - lastPos);
                             finalString.replace(lastPos, finalString.length(), a);
                         }
-                        lastPos = finalString.length() + eArr[i].getLastPos();
+
+                        // check if the string was valid from the beginning.
+                        // Then the string appended may not be valid thus only change it if it is.
+                        if (eArr[i].getLastPos() > 0) {
+                            lastPos = finalString.length() + eArr[i].getLastPos();
+                        }
+
                         finalString.append(fString);
                         endState = eArr[i].getEnd();
                         break;
@@ -534,11 +567,11 @@ class NormalRunnable implements Runnable {
                 e.printStackTrace();
             }
         }
+        if (aReader != null)
+            aReader.shutdown();
     }
 
     public String getString() {
-        if (aReader != null)
-            aReader.shutdown();
         return finalString.toString();
     }
 }

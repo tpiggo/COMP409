@@ -9,6 +9,42 @@
 #include <unordered_set>
 using namespace std;
 
+/**
+ * TODO: Comment code!
+ * 
+ */ 
+class TicketLock
+{
+    public:
+        TicketLock(int numThreads)
+        {
+            turn = new int[numThreads];
+        }
+
+        ~TicketLock()
+        {
+            delete []turn;
+        }
+
+        bool enter() 
+        {
+            int i = 0;
+            #pragma omp atomic capture
+                turn[omp_get_thread_num()] = number++;
+            while (turn[omp_get_thread_num()] != next);
+        }
+
+        void exit() 
+        {
+            next++;
+        }
+
+    private:
+        int next = 0;
+        int number = 0;
+        int *turn;
+};
+
 class Node
 {
     public:
@@ -18,14 +54,14 @@ class Node
             this->color = 0;
         }
 
-        vector<Node *> getAdj() const
+        unordered_set<Node *> getAdj() const
         {
             return adj;
         }
 
         void addNode(Node *pNode)
         {
-            adj.push_back(pNode);
+            adj.insert(pNode);
         }
 
         int getId() const
@@ -33,23 +69,10 @@ class Node
             return id;
         }
 
-        // Delete this 
-        void printAdj()
-        {
-            for (Node *n: adj)
-            {
-                cout << n->getId();
-                if (adj.back() != n)
-                {
-                    cout << ", ";
-                }
-            }
-        }
-
         int getColor()
         {
             int col = 0;
-            #pragma omp atomic write
+            #pragma omp atomic read
                 col = this->color;
             return col;
         }
@@ -57,27 +80,25 @@ class Node
         void setColor(int color)
         {
             // may not need the lock
-            #pragma omp atomic read
+            #pragma omp atomic write
                 this->color = color;
         }
 
         bool adjContains(Node *pNode)
         {
-            vector<Node*>::iterator it = find(adj.begin(), adj.end(), pNode);
-            return it != adj.end();
+            return adj.find(pNode) != adj.end();
         }
 
     private:
-        vector<Node*> adj = {};
+        unordered_set<Node*> adj = {};
         int id;
         int color;
 };
 
-
 class Graph
 {
     public:
-        Graph(int numNodes, int edges);
+        Graph(int numNodes, int numEdges, int numThreads);
         ~Graph();
         // Calling the parallelizable functions here.
         // Wrapping them up in this easy to use function for data hiding.
@@ -94,11 +115,12 @@ class Graph
         void assign();
         vector<Node*> detectConflict();
         vector<Node*> detectConflict2();
+        // Ticket algorithm setup.
+        TicketLock *lock;
 };
-
 // Not the most efficient way of building a graph :(
 int a = 1;
-Graph::Graph(int numNodes, int numEdges)
+Graph::Graph(int numNodes, int numEdges, int numThreads)
 {
     for (int i = 1; i <= numNodes; i++)
     {
@@ -109,6 +131,8 @@ Graph::Graph(int numNodes, int numEdges)
     srand(time(NULL)+a);
     rand();
     cout << "number of edges: " << numEdges << endl;
+    
+    auto start = chrono::high_resolution_clock::now();
     for (int i = 0 ; i < numEdges; i++)
     {
         // Get the position in the ordered list of nodes
@@ -127,6 +151,11 @@ Graph::Graph(int numNodes, int numEdges)
         n1->addNode(n2);
         n2->addNode(n1);
     }
+
+    chrono::duration<double> dur = chrono::high_resolution_clock::now() - start;
+    cout << "Time taken to create graph of " << numEdges << " was " << dur.count() << endl;
+    // initializing the lock here!
+    lock = new TicketLock(numThreads);
 }
 
 Graph::~Graph()
@@ -137,6 +166,7 @@ Graph::~Graph()
         nodes.pop_back();
         delete back;
     }
+    delete lock;
 }
 
 void Graph::inspectGraph()
@@ -220,6 +250,8 @@ void Graph::assign()
     }
 }
 
+
+// implement the ticket algorithm
 vector<Node*> Graph::detectConflict()
 {
     vector<Node*> newConflicts;
@@ -235,50 +267,15 @@ vector<Node*> Graph::detectConflict()
                 // choose the max!
                 if (pNode->getId() < node->getId())
                 {
-                    #pragma omp critical
-                        newConflicts.push_back(node);
-                    // Done!
+                    lock->enter();
+                    newConflicts.push_back(node);
+                    lock->exit();
                     break;
                 }
             }
         }
     }
 
-    return newConflicts;
-}
-
-// Faster less lock contention way of doing the detecting of the conflict
-vector<Node*> Graph::detectConflict2()
-{
-    vector<Node*> newConflicts;
-    #pragma omp parallel 
-    {
-        // local 
-        vector<Node*> threadConf;
-        #pragma omp for nowait
-        for (int i = 0; i < this->conflicts.size(); i++) 
-        {
-            // Each thread should check its neighbours and make a decision
-            Node *node = this->conflicts.at(i);
-            for (Node *pNode : node->getAdj())
-            {
-
-                if (pNode->getColor() == node->getColor())
-                {
-                    // choose the max!
-                    if (pNode->getId() < node->getId())
-                    {
-                        threadConf.push_back(node);
-                        // Done!
-                        break;
-                    }
-                }
-            }
-        }
-        // Trying to reduce lock contention!
-        #pragma omp critical
-            newConflicts.insert(newConflicts.end(), threadConf.begin(), threadConf.end());
-    }
     return newConflicts;
 }
 
@@ -319,7 +316,7 @@ int main(int argc, char *argv[])
 
     // Main function
     // Create the graph and set the threads
-    Graph aGraph(n, e);
+    Graph aGraph(n, e, t);
     omp_set_num_threads(t);
 
     cout << "=== start coloring ===" << endl;
