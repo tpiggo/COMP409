@@ -8,7 +8,7 @@ public class testq1 {
         // String a = "07418460262.72009a8802700382717781799279690a.17a39";
         // String a = "641a7519841066.9829072aa965209137.885350.48762069.4a9205a348161159020955278218829.44684a65562.994.a7";
         // String a = ".8362a353.22aa81a52a697.1a49.528.4363666488403a1762a3548a1.2a48073832a273578765274525789144.947.20.1";
-         String a = q1.generateString(2000);
+         String a = q1.generateString(255, 2000);
         System.out.println("String: " + a);
         System.out.println("length: " + a.length());
         DFAGraph aDFA = new DFAGraph();

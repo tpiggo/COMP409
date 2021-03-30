@@ -276,15 +276,9 @@ class DFATask implements Callable<EncodingType[]> {
         State prevState, currentState = pEncoding.getEnd();
         // Main body. Read the string char by char and perform the necessary computations
         int i = pEncoding.getPos();
-//        if (id == 1){
-//            System.out.println("Here with id 1");
-//        }
         boolean checkEncodings = true;
         for (; i < aString.length(); i++) {
             prevState = currentState;
-//            if (id == 1){
-//                System.out.println("Here with id 1");
-//            }
             currentState = currentState.readChar(aString.charAt(i));
             if (currentState == null && prevState.equals(dfa.getState(5))) {
                 pEncoding.appendUnderscore();
@@ -318,7 +312,6 @@ class DFATask implements Callable<EncodingType[]> {
                     int isFalse = 0;
                     for (int j = 0; j < converge.length; j++){
                         if (converge[j] && aEncoding[j].areChanges()){
-                            System.out.println("Here1");
                             // Commits the changes without forcing us to.
                             aEncoding[j].replaceFromLast();
                             isFalse++;
@@ -373,7 +366,6 @@ class DFATask implements Callable<EncodingType[]> {
             // Need to fix those who are merged with you.
             for (int j = pId-1; j >= 0; j--) {
                 if (converge[j] && aEncoding[j].areChanges()){
-                    System.out.println("Here1");
                     aEncoding[j].replaceFromLast();
                 } else if (!converge[j]){
                     // First one who is not merged you're done.
@@ -538,8 +530,6 @@ class NormalRunnable implements Runnable {
                 }
                 finalString.replace(lastPos, finalString.length(), a);
             }
-        } else  {
-            System.out.print("We are here\n");
         }
         // Set the end state
         endState = currentState;
@@ -586,7 +576,7 @@ public class q1 {
      * @param n length of the string
      * @return Randomly generated string
      */
-    public static String generateString(int n) {
+    public static String generateString(int seed, int n) {
         char possible[] = new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', 'a'};
         StringBuilder aStringBuilder = new StringBuilder();
         Random aRandom = new Random();
@@ -596,20 +586,31 @@ public class q1 {
         return aStringBuilder.toString();
     }
     public static void main(String [] args) {
+        int t=0, seed = 500;
+        if (args.length >= 1) {
+            t = Integer.parseInt(args[0]);
+            if (args.length >= 2){
+                seed = Integer.parseInt(args[1]);
+            }
+        } else {
+            // Throw this error if missing arguments.
+            throw new IllegalArgumentException("Missing arguments!");
+        }
+
         DFAGraph mDFA = new DFAGraph();
-        String aString = q1.generateString(5000000);
+        String aString = q1.generateString(seed, 5000000);
         try {
 
             FileWriter fileWriter = new FileWriter("output.txt");
             // System.out.println("Running DFA on " + aString);
             fileWriter.write("Running DFA on: " + aString + "\n");
             System.out.println("Starting executor");
-            NormalRunnable nRun = new NormalRunnable(7, aString, mDFA);
-            Thread t = new Thread(nRun);
+            NormalRunnable nRun = new NormalRunnable(t, aString, mDFA);
+            Thread thread = new Thread(nRun);
             // Start the task
             long start = System.currentTimeMillis();
-            t.start();
-            t.join();
+            thread.start();
+            thread.join();
             long totalTime = System.currentTimeMillis()-start;
             aString = nRun.getString();
             // System.out.println("OUTPUT: " + aString);
