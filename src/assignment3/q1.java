@@ -10,6 +10,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+/**
+ * TODO: Add comments.
+ *
+ */
 class Transition {
     private Set<Character> characters;
     private State next;
@@ -593,14 +597,14 @@ public class q1 {
     }
     public static void main(String [] args) {
         DFAGraph mDFA = new DFAGraph();
-        String aString = q1.generateString(100);
+        String aString = q1.generateString(5000000);
         try {
 
             FileWriter fileWriter = new FileWriter("output.txt");
             // System.out.println("Running DFA on " + aString);
             fileWriter.write("Running DFA on: " + aString + "\n");
             System.out.println("Starting executor");
-            NormalRunnable nRun = new NormalRunnable(0, aString, mDFA);
+            NormalRunnable nRun = new NormalRunnable(7, aString, mDFA);
             Thread t = new Thread(nRun);
             // Start the task
             long start = System.currentTimeMillis();
