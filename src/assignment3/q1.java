@@ -579,7 +579,7 @@ public class q1 {
     public static String generateString(int seed, int n) {
         char possible[] = new char[]{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '.', 'a'};
         StringBuilder aStringBuilder = new StringBuilder();
-        Random aRandom = new Random();
+        Random aRandom = new Random(seed);
         for (int i = 0; i < n; i++){
             aStringBuilder.append(possible[aRandom.nextInt(possible.length)]);
         }
@@ -600,7 +600,6 @@ public class q1 {
         DFAGraph mDFA = new DFAGraph();
         String aString = q1.generateString(seed, 5000000);
         try {
-
             FileWriter fileWriter = new FileWriter("output.txt");
             // System.out.println("Running DFA on " + aString);
             fileWriter.write("Running DFA on: " + aString + "\n");
