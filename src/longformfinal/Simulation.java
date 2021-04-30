@@ -30,6 +30,7 @@ interface Channel {
 class ConcreteChannel implements Channel {
     private Queue<Integer> tokenQueue = new LinkedList<>();
     private Actor aDest;
+    private int maxLength = 1000;
 
     @Override
     public synchronized void set(int i) {
@@ -321,6 +322,7 @@ class LessThanActor extends AbstractActor {
                 ret = 1;
             } else if (value == null)  {
                 int in2 = channelsIn.get(1).removeToken();
+//                System.out.println("LessThan: " +in1 + " < " +  in2);
                 if (in1 < in2) {
                     ret = 1;
                 }
@@ -355,7 +357,7 @@ class GreaterThanActor extends AbstractActor {
         startActing();
 
         while (acting) {
-
+//            System.out.println("GEQ 0 consuming : " + ++consumed);
             int ret = 0;
             int in1 = channelsIn.get(0).removeToken();
             if (value != null && in1 > value) {
@@ -442,6 +444,22 @@ class InputActor extends AbstractActor {
 
     }
 
+    public synchronized void pushQueue(int i) {
+        aQueue.add(i);
+    }
+    public void input(int i) {
+        pushQueue(i);
+        if (aServ != null && !aQueue.isEmpty()) {
+            aServ.submit(this);
+        }
+    }
+
+    public int sequenceLength() {
+        int length = 0;
+        for (Integer i : aQueue)
+            length += i;
+        return length;
+    }
     @Override
     public void act() {
         startActing();
@@ -558,7 +576,7 @@ class MergeActor extends AbstractActor {
         startActing();
 
         while(acting) {
-            // System.out.println("Merge "+ id + "; " + ++consumed);
+//             System.out.println("Merge "+ id + "; " + ++consumed);
             int bool = channelsIn.get(0).removeToken();
             int input;
             if (bool == 0) {
@@ -738,64 +756,6 @@ class Factory {
         }
         return c;
     }
-
-    // Row 1 is the actors which require input lines
-    // Row 2 is the actors which require output lines connected.
-    public static Actor[][] partialSum() {
-        Actor add = Factory.createActor("add");
-        Actor f1 = Factory.createActor("fork");
-        Actor f2 = Factory.createActor("fork");
-        Actor sw = Factory.createActor("switch");
-        Actor merge = Factory.createActor("merge");
-        Actor zero = Factory.createActor("constant", 0);
-        Factory.createChannelLinkActor(add, f1, 0, 0);
-        Factory.createChannelLinkActor(f2, merge, 0, 0);
-        Factory.createChannelLinkActor(f2, sw, 0, 0);
-        Factory.createChannelLinkActor(f1, sw, 0, 1);
-        Factory.createChannelLinkActor(sw, merge, 0,1);
-        Factory.createChannelLinkActor(sw, zero, 1,0);
-        Factory.createChannelLinkActor(zero, merge, 0, 2);
-        Channel c = Factory.createChannelLinkActor(merge, add, 0, 0);
-        c.set(0);
-        return new Actor[][] {{add,f2},{f1}};
-    }
-
-    public static Actor[][] sumSequencer(int i) {
-        Actor inc = Factory.createActor("inc");
-        Actor lt = Factory.createActor("<");
-        Actor f2 = Factory.createActor("fork");
-        Actor f3 = Factory.createActor("fork");
-        Actor f4 = Factory.createActor("fork");
-        Actor f5 = Factory.createActor("fork");
-        Actor merge1 = Factory.createActor("merge");
-        Actor sw1 = Factory.createActor("switch");
-        Actor merge2 = Factory.createActor("merge");
-        Actor sw2 = Factory.createActor("switch");
-        // out of switch inc and then merge
-        Factory.createChannelLinkActor(sw1, f2, 0, 0);
-        Factory.createChannelLinkActor(f2, inc, 0, 0);
-        Factory.createChannelLinkActor(inc, merge1, 0, 0);
-        Factory.createChannelLinkActor(sw2, merge2, 0, 0);
-        // false channel out of switch
-        Factory.createChannelLinkActor(sw1, null, 1, 1);
-        Factory.createChannelLinkActor(sw2, null, 1, 1);
-        // connect the two forks after the merge
-        Factory.createChannelLinkActor(merge1, f3, 0, 0);
-        Factory.createChannelLinkActor(merge2, f4, 0, 0);
-        Factory.createChannelLinkActor(f3, lt, 0, 0);
-        Factory.createChannelLinkActor(f4, lt, 0, 1);
-        Factory.createChannelLinkActor(f3, sw1, 1, 1);
-        Factory.createChannelLinkActor(f4, sw2, 1, 1);
-        Factory.createChannelLinkActor(lt, f5, 0, 0);
-        Channel merge1in = Factory.createChannelLinkActor(f5, merge1, 0, 0);
-        Factory.createChannelLinkActor(f5, sw1, 0, 0);
-        Channel merge2in = Factory.createChannelLinkActor(f5, merge2, 0, 0);
-        Factory.createChannelLinkActor(f5, sw2, 0, 0);
-        merge2in.set(0);
-        merge1in.set(0);
-
-        return new Actor[][] {{merge1, merge2},{f2, f5, sw1, sw2}};
-    }
 }
 
 public class Simulation {
@@ -835,6 +795,104 @@ public class Simulation {
         }
     }
 
+    // need 8 forks
+    public static void squareSequence(String fileName) {
+        InputActor inputActor = (InputActor) Factory.createActor("input", fileName);
+        Actor forkTop =  Factory.createActor("fork");
+        Actor constOne =  Factory.createActor("constant", 1);
+        Actor constZero =  Factory.createActor("constant", 0);
+        Actor incrementMid = Factory.createActor("inc");
+        Actor decrementRight = Factory.createActor("dec");
+        Actor mergeLeft = Factory.createActor("merge");
+        Actor mergeMiddle = Factory.createActor("merge");
+        Actor mergeRight = Factory.createActor("merge");
+        Actor forkLeftLoop =  Factory.createActor("fork");
+        Actor forkMidLoop =  Factory.createActor("fork");
+        Actor forkRightLoop =  Factory.createActor("fork");
+        Actor lessThan = Factory.createActor("<");
+        Actor greaterThan0 = Factory.createActor(">", 0);
+        Actor forkBMidLoop =  Factory.createActor("fork");
+        Actor forkBRightLoop =  Factory.createActor("fork");
+        Actor switchLeft = Factory.createActor("switch");
+        Actor switchMiddle = Factory.createActor("switch");
+        Actor switchRight = Factory.createActor("switch");
+        Actor forkBLeftLoop =  Factory.createActor("fork");
+        Actor incrementLoop = Factory.createActor("inc");
+        Actor decrementLoop = Factory.createActor("dec");
+        Actor pSumAdd = Factory.createActor("add");
+        Actor pSumFork = Factory.createActor("fork");
+        Actor pSumSwitch = Factory.createActor("switch");
+        Actor pSumZero = Factory.createActor("constant", 0);
+        Actor pSumMerge = Factory.createActor("merge");
+        Actor finalSwitch = Factory.createActor("switch");
+        Actor finalMerge = Factory.createActor("merge");
+        Actor finalAdd = Factory.createActor("add");
+        Actor output = Factory.createActor("output", inputActor.sequenceLength());
+        Factory.createChannelLinkActor(inputActor, forkTop, 0, 0);
+        Factory.createChannelLinkActor(forkTop, constOne, 0, 0);
+        Factory.createChannelLinkActor(forkTop, incrementMid, 1, 0);
+        Factory.createChannelLinkActor(forkTop, decrementRight, 2, 0);
+        Factory.createChannelLinkActor(forkTop, constZero, 3, 0);
+        Factory.createChannelLinkActor(constOne, mergeLeft, 0, 0);
+        Factory.createChannelLinkActor(incrementMid, mergeMiddle, 0, 0);
+        Factory.createChannelLinkActor(decrementRight, mergeRight, 0, 0);
+        Factory.createChannelLinkActor(mergeLeft, forkLeftLoop, 0, 0);
+        Factory.createChannelLinkActor(mergeMiddle, forkMidLoop, 0, 0);
+        Factory.createChannelLinkActor(mergeRight, forkRightLoop, 0, 0);
+        Factory.createChannelLinkActor(forkLeftLoop, switchLeft, 0, 0);
+        Factory.createChannelLinkActor(forkMidLoop, switchMiddle, 0, 0);
+        Factory.createChannelLinkActor(forkRightLoop, switchRight, 0, 0);
+        Factory.createChannelLinkActor(forkLeftLoop, lessThan, 0, 0);
+        Factory.createChannelLinkActor(forkMidLoop, lessThan, 0, 1);
+        Factory.createChannelLinkActor(lessThan, forkBMidLoop, 0, 1);
+        Factory.createChannelLinkActor(forkRightLoop, greaterThan0, 0, 0);
+        Factory.createChannelLinkActor(greaterThan0, forkBRightLoop, 0, 0);
+        Factory.createChannelLinkActor(forkBMidLoop, switchLeft, 0, 0);
+        Factory.createChannelLinkActor(forkBMidLoop, switchMiddle, 0, 0);
+        // Create the merge contacts and set the token to false
+        Factory.createChannelLinkActor(forkBMidLoop, mergeMiddle, 0, 0).set(0);
+        Factory.createChannelLinkActor(forkBMidLoop, mergeLeft, 0, 0).set(0);
+        Factory.createChannelLinkActor(forkBRightLoop, mergeRight, 0, 0).set(0);
+        Factory.createChannelLinkActor(forkBRightLoop, finalMerge, 0, 0).set(0);
+        // connection to the switches and merges without needing start tokens
+        Factory.createChannelLinkActor(forkBRightLoop, switchRight, 0, 0);
+        Factory.createChannelLinkActor(forkBRightLoop, finalSwitch, 0, 0);
+        Factory.createChannelLinkActor(forkBRightLoop, pSumSwitch, 0, 0);
+        Factory.createChannelLinkActor(forkBRightLoop, pSumMerge, 0, 0);
+        //connecting the loops
+        Factory.createChannelLinkActor(switchMiddle, mergeMiddle, 0, 1);
+        Factory.createChannelLinkActor(switchLeft, forkBLeftLoop, 0, 0);
+        Factory.createChannelLinkActor(switchRight, decrementLoop, 0, 0);
+        Factory.createChannelLinkActor(decrementLoop, mergeRight, 0, 1);
+        // Need sink actors HERE
+        Factory.createChannelLinkActor(switchMiddle, null, 1, 0);
+        Factory.createChannelLinkActor(switchLeft, null, 1, 0);
+        Factory.createChannelLinkActor(switchRight, null, 1, 0);
+        // Connecting the left hand loop to the pSUm and loop
+        Factory.createChannelLinkActor(forkBLeftLoop, incrementLoop, 0, 0);
+        Factory.createChannelLinkActor(incrementLoop, mergeLeft, 0, 1);
+        Factory.createChannelLinkActor(forkBLeftLoop, pSumAdd, 0, 0);
+        // creating reusable pSum
+        Factory.createChannelLinkActor(pSumMerge, pSumAdd, 0, 0).set(0);
+        Factory.createChannelLinkActor(pSumAdd, pSumFork, 0, 0);
+        Factory.createChannelLinkActor(pSumFork, pSumSwitch, 0, 1);
+        Factory.createChannelLinkActor(pSumSwitch, pSumMerge, 0, 1);
+        Factory.createChannelLinkActor(pSumSwitch, pSumZero, 1, 0);
+        Factory.createChannelLinkActor(pSumZero, pSumMerge, 0, 2);
+        // fork the output from pSum to the final part
+        Factory.createChannelLinkActor(pSumFork, finalSwitch, 0, 1);
+        Factory.createChannelLinkActor(finalSwitch, finalMerge, 0, 1);
+        Factory.createChannelLinkActor(finalSwitch, null, 1, 0);
+        Factory.createChannelLinkActor(constZero, finalMerge, 0, 2);
+        Factory.createChannelLinkActor(finalMerge, finalAdd, 0, 0);
+        Factory.createChannelLinkActor(pSumFork, finalAdd, 0, 1);
+        Factory.createChannelLinkActor(finalAdd, output, 0, 0);
+
+        long start = System.currentTimeMillis();
+        Simulation.start();
+        System.out.println("Time: "+ (System.currentTimeMillis() - start));
+    }
+
     public static void main(String [] args) {
         if (args.length >= 1) {
             n = Integer.parseInt(args[0]);
@@ -842,5 +900,7 @@ public class Simulation {
             throw new IllegalArgumentException("Missing input!");
         }
         // ADD YOUR CODE HERE!
+        squareSequence("C:\\Users\\piggo\\IdeaProjects\\COMP409\\src\\longformfinal\\input.txt");
+
     }
 }
