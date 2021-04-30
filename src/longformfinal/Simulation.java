@@ -7,7 +7,13 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-// Get the javadoc stuff later
+/***
+ *
+ * Final long form assignment by Timothy Piggott
+ * ID: 260855765
+ * All work is mine.
+ *
+ */
 interface Actor extends Runnable {
     void connectIn(Channel c, int i);
     void connectOut(Channel c, int i);
@@ -32,11 +38,19 @@ class ConcreteChannel implements Channel {
     private Actor aDest;
     private int maxLength = 1000;
 
+    /**
+     * Setting token onto channel
+     * @param i Integer to be place on the channel
+     */
     @Override
     public synchronized void set(int i) {
         tokenQueue.add(i);
     }
 
+    /**
+     * Adding a token in a thread safe manner to a channel
+     * @param i Integer to be place on the channel
+     */
     private synchronized void add(int i) {
         tokenQueue.add(i);
     }
@@ -47,22 +61,34 @@ class ConcreteChannel implements Channel {
             service.submit(aDest);
         }
     }
-
+    /**
+     * Removing a token in a thread safe manner on a channel
+     */
     @Override
     public synchronized int removeToken() {
         return tokenQueue.remove();
     }
 
+    /**
+     * Linking hte end point of a channel
+     * @param pActor Actor at the other end of a channel
+     */
     @Override
     public void setDest(Actor pActor) {
         aDest = pActor;
     }
 
+    /**
+     * Thread safe method for checking if a channel is empty.
+     */
     @Override
     public synchronized boolean isEmpty() {
         return tokenQueue.isEmpty();
     }
 
+    /**
+     * Thread safe method for peeking the first element on the channel.
+     */
     @Override
     public synchronized int peek() {
         if (tokenQueue.isEmpty()) {
@@ -82,6 +108,10 @@ abstract class AbstractActor implements Actor {
     private int aMaxOut = 10;
     int consumed = 0;
 
+    /**
+     * Link the executor to the Actors
+     * @param s ExecutorService for each actor to submit on.
+     */
     public static void setExecutor(ExecutorService s) {
         aServ = s;
     };
@@ -102,7 +132,11 @@ abstract class AbstractActor implements Actor {
         aMaxOut = maxOut;
     }
 
-
+    /**
+     * Connect a channel to an actor
+     * @param c Channel into the Actor
+     * @param i index of the channel
+     */
     @Override
     public void connectIn(Channel c, int i) {
         if (i >= channelsIn.size())
@@ -111,7 +145,11 @@ abstract class AbstractActor implements Actor {
             channelsIn.add(i,c);
         c.setDest(this);
     }
-
+    /**
+     * Connect a channel out of an actor
+     * @param c Channel out of the Actor
+     * @param i index of the channel
+     */
     @Override
     public void connectOut(Channel c, int i) {
         if (i >= channelsOut.size())
@@ -120,6 +158,10 @@ abstract class AbstractActor implements Actor {
             channelsOut.add(i,c);
     }
 
+    /**
+     * Getting the status of the actor
+     * @return true if the actor can act.
+     */
     @Override
     public synchronized boolean canAct() {
         for (Channel channel : channelsIn) {
@@ -142,6 +184,9 @@ abstract class AbstractActor implements Actor {
         act();
     }
 
+    /**
+     * The actor tries to act. If it cannot, it stops acting.
+     */
     protected synchronized void tryActing() {
         for (Channel channel : channelsIn) {
             if (channel.isEmpty()) {
@@ -152,6 +197,9 @@ abstract class AbstractActor implements Actor {
         }
     }
 
+    /**
+     * An actor begins acting, informing other actors it is acting.
+     */
     protected synchronized void startActing() {
         acting = true;
         queued = false;
@@ -164,6 +212,9 @@ class AddActor extends AbstractActor {
     }
 
 
+    /**
+     * Add Actors main method. Adds to pairwise elements together.
+     */
     @Override
     public void act() {
         startActing();
@@ -185,12 +236,14 @@ class ForkActor extends AbstractActor {
         id = num++;
     }
 
+    /**
+     * Fork Actors main method. Adds a token from the input line onto the output line.
+     */
     @Override
     public void act() {
         startActing();
 
         while (acting) {
-//            System.out.println("Fork " + id + ": consuming : " + ++consumed);
             int in1 = channelsIn.get(0).removeToken();
             for (Channel channel: channelsOut) {
                 channel.addToken(in1, aServ);
@@ -205,14 +258,17 @@ class IncrementActor extends AbstractActor {
     IncrementActor() {
         super(1,1);
     }
-
+    /**
+     * Increment Actors main method. Adds one to the input token and emits.
+     */
     @Override
     public void act() {
         startActing();
 
         while (acting) {
             int in1 = channelsIn.get(0).removeToken();
-            channelsOut.get(0).addToken(++in1, aServ);
+            for (Channel c: channelsOut)
+                c.addToken(++in1, aServ);
             tryActing();
         }
     }
@@ -224,13 +280,17 @@ class DecrementActor extends AbstractActor {
         super(1,1);
     }
 
+    /**
+     * Decrement Actors main method. Decrements by one the input token and emits.
+     */
     @Override
     public void act() {
         startActing();
 
         while (acting) {
             int in1 = channelsIn.get(0).removeToken();
-            channelsOut.get(0).addToken(--in1, aServ);
+            for (Channel c: channelsOut)
+                c.addToken(--in1, aServ);
             tryActing();
         }
     }
@@ -252,7 +312,10 @@ class EqualsActor extends AbstractActor {
         super(1,1);
         value = setVal;
     }
-
+    /**
+     * Equals Actors main method. Checks if the input lines are equal
+     * or if the input line is equal to some value.
+     */
     @Override
     public void act() {
         startActing();
@@ -268,26 +331,10 @@ class EqualsActor extends AbstractActor {
                     ret = 1;
                 }
             }
-            channelsOut.get(0).addToken(ret, aServ);
+            for (Channel c: channelsOut)
+                c.addToken(ret, aServ);
 
             tryActing();
-        }
-    }
-
-    @Override
-    public synchronized boolean canAct() {
-        if (!channelsIn.get(0).isEmpty() && !acting && !queued) {
-            queued = true;
-            return true;
-        }
-
-        return false;
-    }
-
-    @Override
-    protected synchronized void tryActing() {
-        if (channelsIn.get(0).isEmpty()) {
-            acting = false;
         }
     }
 }
@@ -309,6 +356,10 @@ class LessThanActor extends AbstractActor {
         value = setVal;
     }
 
+    /**
+     * Less Than Actors main method. Checks if the first input line is less than the second
+     * or if the input line is less than to some value.
+     */
     @Override
     public void act() {
         startActing();
@@ -317,18 +368,16 @@ class LessThanActor extends AbstractActor {
 
             int ret = 0;
             int in1 = channelsIn.get(0).removeToken();
-//            System.out.println("LessThan: " + ++consumed);
             if (value != null && in1 < value) {
                 ret = 1;
             } else if (value == null)  {
                 int in2 = channelsIn.get(1).removeToken();
-//                System.out.println("LessThan: " +in1 + " < " +  in2);
                 if (in1 < in2) {
                     ret = 1;
                 }
             }
-
-            channelsOut.get(0).addToken(ret, aServ);
+            for (Channel c: channelsOut)
+                c.addToken(ret, aServ);
             tryActing();
         }
 
@@ -369,7 +418,8 @@ class GreaterThanActor extends AbstractActor {
                 }
             }
 
-            channelsOut.get(0).addToken(ret, aServ);
+            for (Channel c: channelsOut)
+                c.addToken(ret, aServ);
             tryActing();
         }
 
@@ -392,7 +442,8 @@ class CDRActor extends AbstractActor {
             if (!hasConsumed) {
                 hasConsumed = true;
             } else {
-                channelsOut.get(0).addToken(in1, aServ);
+                for (Channel c: channelsOut)
+                    c.addToken(in1, aServ);
             }
 
             tryActing();
@@ -444,9 +495,12 @@ class InputActor extends AbstractActor {
 
     }
 
+    // Push some input i onto the queue thread safe.
     public synchronized void pushQueue(int i) {
         aQueue.add(i);
     }
+
+    // Read input
     public void input(int i) {
         pushQueue(i);
         if (aServ != null && !aQueue.isEmpty()) {
@@ -454,22 +508,24 @@ class InputActor extends AbstractActor {
         }
     }
 
+    // Get the sequence length
     public int sequenceLength() {
         int length = 0;
         for (Integer i : aQueue)
             length += i;
         return length;
     }
+
     @Override
     public void act() {
         startActing();
 
         while (!aQueue.isEmpty()) {
             synchronized (this) {
-                channelsOut.get(0).addToken(aQueue.remove(), aServ);
+                int i = aQueue.remove();
+                for (Channel c: channelsOut)
+                    c.addToken(i, aServ);
             }
-
-            System.out.println("INPUT PUSHED SOMETHING");
         }
     }
 }
@@ -489,6 +545,7 @@ class OutputActor extends AbstractActor {
         terminal = true;
     }
 
+    // Reads tokens until it cannot anymore.
     @Override
     public void act() {
         startActing();
@@ -508,6 +565,7 @@ class OutputActor extends AbstractActor {
         }
     }
 
+    // Only one line in thus has to check only that line
     @Override
     public synchronized boolean canAct() {
         if (!channelsIn.get(0).isEmpty() && !acting && !queued) {
@@ -518,6 +576,7 @@ class OutputActor extends AbstractActor {
         return false;
     }
 
+    // Only one line in thus has to check only that line
     @Override
     public synchronized void tryActing() {
         if (channelsIn.get(0).isEmpty()) {
@@ -525,6 +584,7 @@ class OutputActor extends AbstractActor {
         }
     }
 
+    // Makes the main thread wait until it is terminated given the output is a terminal output.
     public synchronized boolean isTerminated() {
         if (!terminal) {
             throw new IllegalCallerException("Cannot call this method on this object!");
@@ -541,11 +601,13 @@ class OutputActor extends AbstractActor {
     }
 }
 
+
 class SwitchActor extends AbstractActor {
     SwitchActor () {
         super(2,2);
     }
 
+    // Acts on input, pushing tokens down the proper line.
     @Override
     public void act() {
         startActing();
@@ -571,12 +633,12 @@ class MergeActor extends AbstractActor {
         super(3, 1); id = num++;
     }
 
+    // Consumes tokens down a line given the control boolean tells it to.
     @Override
     public void act() {
         startActing();
 
         while(acting) {
-//             System.out.println("Merge "+ id + "; " + ++consumed);
             int bool = channelsIn.get(0).removeToken();
             int input;
             if (bool == 0) {
@@ -589,6 +651,7 @@ class MergeActor extends AbstractActor {
         }
     }
 
+    // Check the lines if there is more stuff
     @Override
     protected synchronized void tryActing(){
         int bool = channelsIn.get(0).peek();
@@ -604,6 +667,7 @@ class MergeActor extends AbstractActor {
         }
     }
 
+    // Check if there is any boolean control and if the lines have tokens
     @Override
     public synchronized boolean canAct() {
         int bool = channelsIn.get(0).peek();
@@ -629,12 +693,12 @@ class ConstantActor extends AbstractActor {
         value = pValue;
     }
 
+    // Produces constant as output.
     @Override
     public void act() {
         startActing();
 
         while(acting) {
-//            System.out.println("Constant: " + ++consumed);
             channelsIn.get(0).removeToken();
             channelsOut.get(0).addToken(value, aServ);
             tryActing();
@@ -642,12 +706,20 @@ class ConstantActor extends AbstractActor {
     }
 }
 
+/**
+ * Factory for creating the Actors.
+ */
 class Factory {
     private static List<AbstractActor> actorsCreated = new LinkedList<>();
     public static List<AbstractActor> getActors() {
         return actorsCreated;
     }
 
+    /**
+     * Create actors and return them. Keep track of all actors created.
+     * @param name Name of the actor
+     * @return Actor that was created or null if it was a bad actor.
+     */
     public static Actor createActor(String name) {
         AbstractActor actor;
         switch(name){
@@ -703,7 +775,12 @@ class Factory {
                 return null;
         }
     }
-
+    /**
+     * Create actors and return them. Keep track of all actors created.
+     * @param name Name of the actor
+     * @param i Integer for the actor.
+     * @return Actor that was created or null if it was a bad actor.
+     */
     public static Actor createActor(String name, int i) {
         AbstractActor actor;
         switch(name){
@@ -731,7 +808,12 @@ class Factory {
                 return createActor(name);
         }
     }
-
+    /**
+     * Create actors and return them. Keep track of all actors created.
+     * @param name Name of the actor
+     * @param fileName can create an input actor this way.
+     * @return Actor that was created or null if it was a bad actor.
+     */
     public static Actor createActor(String name, String fileName) {
         if (name.equals("input")) {
             AbstractActor actor = new InputActor(fileName);
@@ -742,10 +824,22 @@ class Factory {
         }
     }
 
+    /**
+     * Create a channel and return it.
+     * @return Actor that was created or null if it was a bad actor.
+     */
     public static Channel createChannel() {
         return new ConcreteChannel();
     }
 
+    /**
+     * Factory function for creating channels and connecting them with one call.
+     * @param out The actor which is producing the output
+     * @param in The actor receiving input.
+     * @param posOut Position of the channel in the output actor
+     * @param posIn Position of the channel in the input actor
+     * @return
+     */
     public static Channel createChannelLinkActor(Actor out, Actor in, int posOut, int posIn) {
         ConcreteChannel c = new ConcreteChannel();
         if (in != null) {
@@ -772,6 +866,7 @@ public class Simulation {
                 readyActors.add(actor);
             }
         }
+
         for (AbstractActor actor: Factory.getActors()) {
             if (actor instanceof OutputActor && ((OutputActor) actor).terminal) {
                 terminalActor = actor;
@@ -779,6 +874,7 @@ public class Simulation {
             }
         }
 
+        // If it cannot find any ready actors, fail.
         if (readyActors.isEmpty()) {
             throw new Error("Failed to find any node which has enough input to run.");
         }
@@ -787,7 +883,7 @@ public class Simulation {
             pService.submit(actor);
         }
 
-        // If it cannot find a
+        // If it cannot find a terminal, does not end.
         if (terminalActor != null) {
             if (terminalActor instanceof OutputActor && ((OutputActor) terminalActor).isTerminated()) {
                 pService.shutdown();
@@ -795,7 +891,7 @@ public class Simulation {
         }
     }
 
-    // need 8 forks
+    //Creates the square sequence and runs it.
     public static void squareSequence(String fileName) {
         InputActor inputActor = (InputActor) Factory.createActor("input", fileName);
         Actor forkTop =  Factory.createActor("fork");
@@ -901,6 +997,5 @@ public class Simulation {
         }
         // ADD YOUR CODE HERE!
         squareSequence("C:\\Users\\piggo\\IdeaProjects\\COMP409\\src\\longformfinal\\input.txt");
-
     }
 }
