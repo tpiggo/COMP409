@@ -151,7 +151,7 @@ abstract class AbstractActor implements Actor {
             }
         }
     }
-    
+
     protected synchronized void startActing() {
         acting = true;
         queued = false;
